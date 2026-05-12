@@ -1,0 +1,2238 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>نظام إدارة قوائم الأسعار – SQLite OPFS</title>
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;500;600;700;900&family=Tajawal:wght@400;700;800&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<!-- wa-sqlite via CDN (OPFS backend) -->
+<script src="https://cdn.jsdelivr.net/npm/wa-sqlite@0.9.9/dist/wa-sqlite-async.mjs" type="module" id="waModule"></script>
+<style>
+:root{
+  --c0:#080b14;--c1:#0e1220;--c2:#141828;--c3:#1a2035;--c4:#222840;
+  --border:#252e50;--border2:#2e3a60;
+  --gold:#c8a84b;--gold2:#e2c46a;--golddim:rgba(200,168,75,0.14);
+  --teal:#26c6b0;--tealdim:rgba(38,198,176,0.12);
+  --red:#f0485e;--reddim:rgba(240,72,94,0.12);
+  --green:#0fba7e;--greendim:rgba(15,186,126,0.12);
+  --blue:#3b82f6;--bluedim:rgba(59,130,246,0.12);
+  --orange:#f59e0b;--orangedim:rgba(245,158,11,0.12);
+  --purple:#8b5cf6;--purpledim:rgba(139,92,246,0.12);
+  --t0:#eef0fa;--t1:#9aa4cc;--t2:#505878;--t3:#303650;
+  --ff:'Cairo',sans-serif;--ffd:'Tajawal',sans-serif;
+  --r1:6px;--r2:10px;--r3:16px;--r4:20px;
+  --tr:all .2s cubic-bezier(.4,0,.2,1);
+  --shadow-sm:0 1px 3px rgba(0,0,0,.3);
+  --shadow-md:0 4px 16px rgba(0,0,0,.4);
+  --shadow-lg:0 8px 32px rgba(0,0,0,.5);
+  --header-h:58px;--dbbar-h:44px;--sidebar-w:258px;--sidebar-wc:62px;
+}
+body.light{
+  --c0:#f4f6fb;--c1:#ffffff;--c2:#f9fafc;--c3:#eef0f6;--c4:#dfe2ec;
+  --border:#d0d5e0;--border2:#bcc1d0;
+  --gold:#b8941f;--gold2:#d4a82a;--golddim:rgba(184,148,31,0.11);
+  --teal:#0d9488;--tealdim:rgba(13,148,136,0.11);
+  --red:#dc2626;--reddim:rgba(220,38,38,0.1);
+  --green:#059669;--greendim:rgba(5,150,105,0.1);
+  --blue:#2563eb;--bluedim:rgba(37,99,235,0.1);
+  --orange:#d97706;--orangedim:rgba(217,119,6,0.1);
+  --purple:#7c3aed;--purpledim:rgba(124,58,237,0.1);
+  --t0:#111827;--t1:#374151;--t2:#6b7280;--t3:#9ca3af;
+  --shadow-sm:0 1px 3px rgba(0,0,0,.08);
+  --shadow-md:0 4px 16px rgba(0,0,0,.1);
+  --shadow-lg:0 8px 32px rgba(0,0,0,.15);
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{height:100%;scroll-behavior:smooth;-webkit-text-size-adjust:100%}
+body{font-family:var(--ff);background:var(--c0);color:var(--t0);min-height:100%;direction:rtl;overflow-x:hidden;transition:background .3s,color .3s;-webkit-font-smoothing:antialiased}
+body:not(.light)::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:0;background:radial-gradient(ellipse 70% 50% at 15% 10%,#182048 0%,transparent 55%),radial-gradient(ellipse 50% 40% at 85% 85%,#0c1830 0%,transparent 55%);opacity:.6}
+::-webkit-scrollbar{width:5px;height:5px}
+::-webkit-scrollbar-track{background:var(--c1)}
+::-webkit-scrollbar-thumb{background:var(--border2);border-radius:99px}
+::-webkit-scrollbar-thumb:hover{background:var(--gold)}
+
+/* ── LOADING SCREEN ── */
+#loadingScreen{position:fixed;inset:0;background:#060910;z-index:20000;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px}
+.load-icon{font-size:56px;animation:spin 2s linear infinite}
+@keyframes spin{0%{transform:rotate(0)}100%{transform:rotate(360deg)}}
+.load-title{font-family:var(--ffd);font-size:22px;font-weight:800;background:linear-gradient(135deg,#e2c46a,#c8a84b);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.load-sub{font-size:13px;color:#505878}
+.load-bar{width:260px;height:4px;background:#1a2035;border-radius:99px;overflow:hidden}
+.load-bar-inner{height:100%;background:linear-gradient(90deg,#c8a84b,#26c6b0);border-radius:99px;width:0%;transition:width .4s ease}
+
+/* ── INIT SCREEN (new/open DB) ── */
+#initScreen{position:fixed;inset:0;background:linear-gradient(145deg,#060910,#0a0f1c);z-index:15000;display:none;align-items:center;justify-content:center;padding:20px}
+.init-card{background:linear-gradient(145deg,#111828,#0d1220);border:1px solid var(--border);border-radius:var(--r4);padding:40px 36px;max-width:480px;width:100%;text-align:center;box-shadow:var(--shadow-lg)}
+.init-icon{font-size:56px;margin-bottom:20px;display:block;filter:drop-shadow(0 4px 12px rgba(200,168,75,.3))}
+.init-title{font-family:var(--ffd);font-size:24px;font-weight:800;margin-bottom:8px;background:linear-gradient(135deg,#e2c46a,#c8a84b);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.init-desc{font-size:14px;color:var(--t2);line-height:1.7;margin-bottom:28px}
+.init-btns{display:flex;flex-direction:column;gap:10px}
+.init-btn{display:flex;align-items:center;gap:14px;padding:16px 20px;border-radius:var(--r3);cursor:pointer;transition:var(--tr);border:1px solid var(--border);background:var(--c2);text-align:right}
+.init-btn:hover{border-color:var(--gold);background:var(--golddim);transform:translateY(-1px)}
+.init-btn-ico{font-size:28px;flex-shrink:0}
+.init-btn-info h4{font-size:14px;font-weight:700;color:var(--t0);margin-bottom:3px}
+.init-btn-info p{font-size:12px;color:var(--t2)}
+.init-note{font-size:11px;color:var(--t3);margin-top:18px;line-height:1.7;padding:12px;background:var(--c3);border-radius:var(--r2);border:1px solid var(--border)}
+.init-db-list{display:flex;flex-direction:column;gap:6px;margin-top:10px;text-align:right;max-height:200px;overflow-y:auto}
+.init-db-item{display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--c2);border:1px solid var(--border);border-radius:var(--r2);cursor:pointer;transition:var(--tr)}
+.init-db-item:hover{border-color:var(--teal);background:var(--tealdim)}
+.init-db-name{font-size:13px;color:var(--t0);font-weight:600;flex:1}
+.init-db-meta{font-size:11px;color:var(--t2)}
+
+/* ── APP SHELL ── */
+#app{position:relative;z-index:1;min-height:100vh;display:flex;flex-direction:column}
+
+/* ── HEADER ── */
+.hdr{background:linear-gradient(135deg,#09111f,#111928);border-bottom:1px solid var(--border);padding:0 18px;height:var(--header-h);display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:400;box-shadow:0 2px 20px rgba(0,0,0,.4);flex-shrink:0;transition:background .3s}
+body.light .hdr{background:#fff;border-bottom:1px solid #e5e7eb;box-shadow:0 1px 4px rgba(0,0,0,.06)}
+.hdr-brand{display:flex;align-items:center;gap:10px;min-width:0}
+.hdr-ico{width:36px;height:36px;flex-shrink:0;background:linear-gradient(135deg,var(--gold),#8a6820);border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:17px;box-shadow:0 3px 12px rgba(200,168,75,.3)}
+.hdr-title{font-family:var(--ffd);font-size:15px;font-weight:800;white-space:nowrap;color:var(--t0)}
+.hdr-sub{font-size:10px;color:var(--t2);margin-top:1px;white-space:nowrap}
+.hdr-right{display:flex;align-items:center;gap:6px;flex-shrink:0}
+
+/* ── DB BAR ── */
+.db-bar{background:linear-gradient(135deg,#0a0f1e,#0e1528);border-bottom:1px solid var(--border);padding:5px 18px;display:flex;align-items:center;gap:10px;font-size:12px;color:var(--t2);flex-wrap:wrap;min-height:var(--dbbar-h);transition:background .3s;flex-shrink:0}
+body.light .db-bar{background:#f9fafb;border-bottom:1px solid #e5e7eb}
+.db-file{display:flex;align-items:center;gap:8px;flex:1;min-width:0}
+.db-file-ico{font-size:16px;flex-shrink:0}
+.db-file-name{color:var(--t0);font-weight:600;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.db-file-meta{font-size:10px;color:var(--t2);margin-top:1px}
+.db-actions{display:flex;gap:5px;flex-shrink:0;align-items:center;flex-wrap:wrap}
+.save-ind{display:flex;align-items:center;gap:5px;font-size:11px;padding:3px 9px;border-radius:99px;border:1px solid transparent;transition:var(--tr);white-space:nowrap}
+.save-ind.saved{color:var(--green);border-color:rgba(15,186,126,.3);background:var(--greendim)}
+.save-ind.saving{color:var(--orange);border-color:rgba(245,158,11,.3);background:var(--orangedim)}
+.save-ind.nofile{color:var(--t2);border-color:var(--border);background:var(--c3)}
+.save-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.save-ind.saved .save-dot{background:var(--green);box-shadow:0 0 6px var(--green)}
+.save-ind.saving .save-dot{background:var(--orange);animation:pulse .8s infinite}
+.save-ind.nofile .save-dot{background:var(--t3)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+
+/* ── CONTENT WRAPPER ── */
+.content-wrapper{flex:1;display:flex;overflow:hidden;position:relative}
+
+/* ── SIDEBAR ── */
+.sidebar{width:var(--sidebar-w);background:linear-gradient(180deg,#0b1020,#090e1a);border-left:1px solid var(--border);display:flex;flex-direction:column;flex-shrink:0;transition:width .3s cubic-bezier(.4,0,.2,1);overflow:hidden;position:relative;z-index:100}
+body.light .sidebar{background:#f8f9fc;border-left:1px solid #e5e7eb}
+.sidebar.collapsed{width:var(--sidebar-wc)}
+.sidebar-toggle{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid var(--border);cursor:pointer;user-select:none;min-height:44px}
+.sidebar-toggle:hover{background:var(--c3)}
+.sb-tgl-title{font-size:11px;font-weight:700;color:var(--t2);text-transform:uppercase;letter-spacing:.8px;white-space:nowrap;overflow:hidden;transition:opacity .2s}
+.sidebar.collapsed .sb-tgl-title{opacity:0;width:0}
+.sb-tgl-ico{font-size:14px;color:var(--t2);transition:transform .3s;flex-shrink:0}
+.sidebar.collapsed .sb-tgl-ico{transform:rotate(180deg)}
+.sidebar-nav{flex:1;overflow-y:auto;padding:8px 0}
+.sidebar-nav::-webkit-scrollbar{width:3px}
+.nav-item{display:flex;align-items:center;gap:10px;padding:10px 14px;cursor:pointer;transition:var(--tr);border:none;background:transparent;width:100%;text-align:right;font-family:var(--ff);font-size:13px;font-weight:500;color:var(--t1);white-space:nowrap;position:relative}
+.nav-item::before{content:'';position:absolute;right:0;top:4px;bottom:4px;width:3px;background:var(--gold);border-radius:3px 0 0 3px;opacity:0;transition:opacity .2s}
+.nav-item:hover{background:var(--c3);color:var(--t0)}
+.nav-item.active{background:var(--golddim);color:var(--gold);font-weight:600}
+.nav-item.active::before{opacity:1}
+.nav-item-ico{font-size:18px;flex-shrink:0;width:24px;display:flex;align-items:center;justify-content:center}
+.nav-item-label{flex:1;overflow:hidden;text-overflow:ellipsis;transition:opacity .2s}
+.sidebar.collapsed .nav-item-label{opacity:0;width:0;pointer-events:none}
+.nav-badge{background:var(--gold);color:#07090f;font-size:10px;font-weight:700;padding:1px 6px;border-radius:99px;min-width:18px;text-align:center;flex-shrink:0;transition:opacity .2s}
+.sidebar.collapsed .nav-badge{opacity:0;pointer-events:none}
+.nav-sep{height:1px;background:var(--border);margin:6px 14px}
+.sidebar-footer{padding:10px 14px;border-top:1px solid var(--border);display:flex;align-items:center;gap:10px}
+.sb-user-avatar{width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,var(--gold),#8a6820);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:#07090f;flex-shrink:0}
+.sb-user-info{min-width:0;transition:opacity .2s}
+.sidebar.collapsed .sb-user-info{opacity:0;width:0;pointer-events:none}
+.sb-user-name{font-size:12px;font-weight:600;color:var(--t0);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sb-user-role{font-size:10px;color:var(--t2);margin-top:1px}
+
+/* ── MAIN AREA ── */
+.main{flex:1;overflow-y:auto;overflow-x:hidden;padding:16px 18px;display:flex;flex-direction:column;gap:14px;min-width:0}
+
+/* ── STATS ── */
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+.sc{background:linear-gradient(135deg,#111828,#0e1520);border:1px solid var(--border);border-radius:var(--r3);padding:14px;display:flex;align-items:center;gap:12px;transition:var(--tr);position:relative;overflow:hidden}
+body.light .sc{background:#fff;box-shadow:var(--shadow-sm)}
+.sc::after{content:'';position:absolute;top:-20px;left:-20px;width:70px;height:70px;border-radius:50%;opacity:.06}
+.sc.gold::after{background:var(--gold)}.sc.blue::after{background:var(--blue)}
+.sc.green::after{background:var(--green)}.sc.teal::after{background:var(--teal)}
+.sc:hover{border-color:var(--border2);transform:translateY(-2px);box-shadow:var(--shadow-md)}
+.sc-ico{width:40px;height:40px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0}
+.sc-ico.gold{background:var(--golddim)}.sc-ico.blue{background:var(--bluedim)}
+.sc-ico.green{background:var(--greendim)}.sc-ico.teal{background:var(--tealdim)}
+.sc-val{font-size:22px;font-weight:900;font-family:var(--ffd);line-height:1;color:var(--t0)}
+.sc-lbl{font-size:11px;color:var(--t2);margin-top:3px}
+
+/* ── TOOLBAR ── */
+.toolbar{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.srch{position:relative;flex:1;min-width:200px}
+.srch-ico{position:absolute;right:11px;top:50%;transform:translateY(-50%);color:var(--t2);font-size:13px;pointer-events:none;z-index:1}
+.srch input{width:100%;background:var(--c2);border:1px solid var(--border);border-radius:var(--r2);padding:8px 34px 8px 34px;font-family:var(--ff);font-size:13px;color:var(--t0);outline:none;transition:var(--tr);direction:rtl}
+body.light .srch input{background:#fff}
+.srch input::placeholder{color:var(--t2)}
+.srch input:focus{border-color:var(--gold);box-shadow:0 0 0 3px var(--golddim)}
+.voice-btn-i{position:absolute;left:8px;top:50%;transform:translateY(-50%);background:transparent;border:none;cursor:pointer;font-size:15px;color:var(--t2);padding:2px;display:flex;align-items:center;z-index:1;transition:var(--tr);border-radius:4px}
+.voice-btn-i:hover{color:var(--teal)}
+.voice-btn-i.listening{color:var(--red);animation:pulse 1s infinite}
+.flt{background:var(--c2);border:1px solid var(--border);border-radius:var(--r2);padding:8px 9px;font-family:var(--ff);font-size:12px;color:var(--t1);outline:none;cursor:pointer;transition:var(--tr);direction:rtl}
+body.light .flt{background:#fff}
+.flt:focus{border-color:var(--gold)}
+.flt option{background:var(--c1);color:var(--t0)}
+
+/* ── BUTTONS ── */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:5px;padding:7px 14px;border-radius:var(--r2);font-family:var(--ff);font-size:12px;font-weight:600;border:none;cursor:pointer;transition:var(--tr);white-space:nowrap;-webkit-tap-highlight-color:transparent;user-select:none;line-height:1.3}
+.btn:active{transform:scale(.96)}
+.btn-primary{background:linear-gradient(135deg,var(--gold),#9a7020);color:#07090f;box-shadow:0 2px 10px rgba(200,168,75,.25)}
+.btn-primary:hover{filter:brightness(1.12)}
+.btn-teal{background:linear-gradient(135deg,var(--teal),#189080);color:#07090f}
+.btn-teal:hover{filter:brightness(1.1)}
+.btn-danger{background:var(--reddim);color:var(--red);border:1px solid rgba(240,72,94,.3)}
+.btn-danger:hover{background:var(--red);color:#fff}
+.btn-ghost{background:var(--c2);color:var(--t1);border:1px solid var(--border)}
+.btn-ghost:hover{border-color:var(--border2);color:var(--t0)}
+body.light .btn-ghost{background:#fff}
+.btn-sm{padding:5px 10px;font-size:11px;border-radius:var(--r1)}
+.btn-ico{padding:7px;width:30px;height:30px;border-radius:var(--r1)}
+
+/* ── TABLE CARD ── */
+.tcard{background:linear-gradient(135deg,#111828,#0e1520);border:1px solid var(--border);border-radius:var(--r4);overflow:hidden}
+body.light .tcard{background:#fff;box-shadow:var(--shadow-sm)}
+.tcard-hdr{padding:11px 14px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border);background:linear-gradient(135deg,#111928,#0c1018);gap:10px;flex-wrap:wrap}
+body.light .tcard-hdr{background:#f9fafb}
+.tcard-title{font-size:13px;font-weight:700;display:flex;align-items:center;gap:7px;color:var(--t0)}
+.dot{width:7px;height:7px;background:var(--gold);border-radius:50%;box-shadow:0 0 7px var(--gold);flex-shrink:0}
+.tcard-acts{display:flex;gap:5px;align-items:center;flex-wrap:wrap}
+.tscroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+table{width:100%;border-collapse:collapse;font-size:13px;min-width:800px}
+thead tr{background:linear-gradient(135deg,#0e1220,#0a0e18);border-bottom:1px solid var(--border)}
+body.light thead tr{background:#f9fafb}
+th{padding:10px 11px;text-align:right;font-size:10px;font-weight:700;color:var(--t2);text-transform:uppercase;letter-spacing:.8px;white-space:nowrap;user-select:none;cursor:pointer;transition:color .2s}
+th:hover{color:var(--gold)}
+th.sorted{color:var(--gold)}
+.sa{display:inline-block;margin-right:2px;opacity:.3;font-style:normal;transition:.2s;font-size:9px}
+th.sorted .sa{opacity:1}
+th.sorted.asc .sa{transform:rotate(180deg);display:inline-block}
+tbody tr{border-bottom:1px solid rgba(26,33,85,.4);transition:background .15s;cursor:pointer}
+body.light tbody tr{border-bottom:1px solid #f3f4f6}
+tbody tr:hover{background:rgba(26,33,85,.5)}
+body.light tbody tr:hover{background:#f9fafb}
+tbody tr:last-child{border-bottom:none}
+tbody tr.sel{background:var(--golddim)!important}
+td{padding:10px 11px;color:var(--t1);vertical-align:middle}
+td.nm{color:var(--t0);font-weight:600;font-size:13px}
+td.cd{color:var(--t2);font-size:11px;font-weight:600}
+td.nt{max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:var(--t2)}
+td.ac{width:110px;white-space:nowrap}
+td.pl{max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:var(--teal)}
+.badge{display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border-radius:99px;font-size:10px;font-weight:700}
+.badge.doctor{background:var(--bluedim);color:var(--blue);border:1px solid rgba(59,130,246,.3)}
+.badge.center{background:var(--greendim);color:var(--green);border:1px solid rgba(15,186,126,.3)}
+.badge.hospital{background:var(--golddim);color:var(--gold);border:1px solid rgba(200,168,75,.3)}
+.badge.other{background:var(--purpledim);color:var(--purple);border:1px solid rgba(139,92,246,.3)}
+.badge.active{background:var(--greendim);color:var(--green);border:1px solid rgba(15,186,126,.3)}
+.badge.inactive{background:var(--reddim);color:var(--red);border:1px solid rgba(240,72,94,.3)}
+.badge.pending{background:var(--orangedim);color:var(--orange);border:1px solid rgba(245,158,11,.3)}
+.fcnt{display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:var(--r1);font-size:11px;font-weight:600;background:var(--tealdim);color:var(--teal);border:1px solid rgba(38,198,176,.25);cursor:pointer;transition:var(--tr)}
+.fcnt:hover{background:rgba(38,198,176,.2)}
+.fcnt.emp{background:var(--c3);color:var(--t3);border-color:transparent;cursor:default}
+.dbadge{background:var(--c3);border:1px solid var(--border);border-radius:4px;padding:2px 6px;font-size:11px;color:var(--t1);white-space:nowrap}
+.ract{display:flex;gap:3px}
+.ab{width:26px;height:26px;border-radius:5px;border:1px solid transparent;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:12px;transition:var(--tr);background:transparent;color:var(--t2)}
+.ab.e:hover{background:var(--bluedim);border-color:rgba(59,130,246,.3);color:var(--blue)}
+.ab.d:hover{background:var(--reddim);border-color:rgba(240,72,94,.3);color:var(--red)}
+.ab.v:hover{background:var(--tealdim);border-color:rgba(38,198,176,.3);color:var(--teal)}
+.ab.fav:hover{background:rgba(251,191,36,.12);color:var(--orange)}
+.empty{text-align:center;padding:50px 20px;color:var(--t2)}
+.empty .ei{font-size:44px;opacity:.2;display:block;margin-bottom:12px}
+.empty h3{font-size:15px;color:var(--t1);margin-bottom:5px}
+
+/* ── PAGINATION ── */
+.pgn{padding:9px 14px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;background:rgba(8,11,20,.5);flex-wrap:wrap;gap:6px}
+body.light .pgn{background:#f9fafb}
+.pgn-info{font-size:11px;color:var(--t2)}
+.pgn-info span{color:var(--gold);font-weight:600}
+.pgn-btns{display:flex;gap:3px;flex-wrap:wrap}
+.pb{width:28px;height:28px;border-radius:5px;border:1px solid var(--border);background:var(--c3);color:var(--t1);cursor:pointer;font-size:11px;font-family:var(--ff);transition:var(--tr);display:flex;align-items:center;justify-content:center}
+.pb:hover{border-color:var(--gold);color:var(--gold)}
+.pb.act{background:var(--gold);color:#07090f;border-color:var(--gold);font-weight:700}
+.pb:disabled{opacity:.3;cursor:not-allowed}
+
+/* ── MODALS ── */
+.ov{position:fixed;inset:0;background:rgba(0,0,0,.85);backdrop-filter:blur(6px);z-index:800;display:flex;align-items:flex-end;justify-content:center;padding:0;opacity:0;pointer-events:none;transition:opacity .25s}
+.ov.open{opacity:1;pointer-events:all}
+.modal{background:linear-gradient(165deg,#131828,#0e1320);border:1px solid var(--border);border-radius:var(--r4) var(--r4) 0 0;width:100%;max-width:640px;max-height:92vh;overflow-y:auto;direction:rtl;transform:translateY(40px);transition:transform .3s cubic-bezier(.34,1.4,.64,1)}
+body.light .modal{background:#fff;border-color:#e5e7eb}
+.ov.open .modal{transform:translateY(0)}
+@media(min-width:640px){.ov{align-items:center;padding:16px}.modal{border-radius:var(--r4);transform:scale(.94) translateY(16px)}.ov.open .modal{transform:scale(1) translateY(0)}}
+.mhdr{padding:14px 16px 12px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;background:linear-gradient(135deg,#111928,#0c1018);border-radius:var(--r4) var(--r4) 0 0;position:sticky;top:0;z-index:10}
+body.light .mhdr{background:#f9fafb;border-bottom:1px solid #e5e7eb}
+.mhdr-l{display:flex;align-items:center;gap:10px}
+.mico{width:36px;height:36px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:17px;flex-shrink:0}
+.mico.gold{background:var(--golddim)}
+.mtitle{font-size:14px;font-weight:800;font-family:var(--ffd);color:var(--t0)}
+.msub{font-size:11px;color:var(--t2);margin-top:1px}
+.mclose{width:30px;height:30px;border-radius:6px;border:1px solid var(--border);background:var(--c3);color:var(--t2);cursor:pointer;font-size:14px;transition:var(--tr);display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.mclose:hover{background:var(--reddim);color:var(--red);border-color:rgba(240,72,94,.3)}
+.mbody{padding:16px;display:flex;flex-direction:column;gap:13px}
+.mfoot{padding:12px 16px;border-top:1px solid var(--border);display:flex;align-items:center;gap:7px;background:rgba(7,9,15,.3);flex-wrap:wrap}
+body.light .mfoot{background:#f9fafb;border-top:1px solid #e5e7eb}
+
+/* ── FORM ── */
+.frow{display:grid;grid-template-columns:1fr 1fr;gap:11px}
+@media(max-width:480px){.frow{grid-template-columns:1fr}}
+.field{display:flex;flex-direction:column;gap:5px}
+.flbl{font-size:11px;font-weight:700;color:var(--t2);text-transform:uppercase;letter-spacing:.7px;display:flex;align-items:center;gap:4px}
+.req{color:var(--red)}
+.finp{background:var(--c1);border:1px solid var(--border);border-radius:var(--r2);padding:9px 11px;font-family:var(--ff);font-size:13px;color:var(--t0);outline:none;transition:var(--tr);width:100%;direction:rtl}
+body.light .finp{background:#fff;color:#111827}
+.finp::placeholder{color:var(--t3)}
+.finp:focus{border-color:var(--gold);box-shadow:0 0 0 3px var(--golddim)}
+body.light .finp:focus{background:#fff}
+.finp.err{border-color:var(--red);box-shadow:0 0 0 3px var(--reddim)}
+textarea.finp{resize:vertical;min-height:78px;line-height:1.6}
+select.finp option{background:var(--c1);color:var(--t0)}
+.ferr{font-size:11px;color:var(--red);display:none}
+.ferr.show{display:block}
+
+/* ── UPLOAD ── */
+.upsec{display:flex;flex-direction:column;gap:8px}
+.uplbl{font-size:11px;font-weight:700;color:var(--t2);text-transform:uppercase;letter-spacing:.7px}
+.upzone{border:2px dashed var(--border);border-radius:var(--r3);padding:20px 14px;text-align:center;cursor:pointer;transition:var(--tr);background:var(--c1)}
+.upzone:hover,.upzone.dov{border-color:var(--teal);background:var(--tealdim)}
+.upzone-ico{font-size:28px;margin-bottom:6px;opacity:.4}
+.upzone-txt{font-size:12px;color:var(--t2);line-height:1.6}
+.upzone-txt strong{color:var(--teal)}
+.upzone-hint{font-size:10px;color:var(--t3);margin-top:3px}
+.flist{display:flex;flex-direction:column;gap:5px;margin-top:4px}
+.fi{display:flex;align-items:center;gap:8px;background:var(--c1);border:1px solid var(--border);border-radius:var(--r2);padding:8px 10px;transition:var(--tr)}
+.fi:hover{border-color:var(--border2)}
+.fi-ico{width:30px;height:30px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0}
+.fi-ico.pdf{background:rgba(239,68,68,.15)}.fi-ico.word{background:rgba(37,99,235,.15)}
+.fi-ico.xl{background:rgba(22,163,74,.15)}.fi-ico.img{background:rgba(139,92,246,.15)}.fi-ico.oth{background:var(--c3)}
+.fi-info{flex:1;min-width:0}
+.fi-name{font-size:12px;color:var(--t0);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}
+.fi-meta{font-size:10px;color:var(--t3);margin-top:1px}
+.fi-rm{width:24px;height:24px;border-radius:4px;border:none;background:transparent;color:var(--t3);cursor:pointer;font-size:12px;transition:var(--tr);display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.fi-rm:hover{background:var(--reddim);color:var(--red)}
+
+/* ── VIEWER ── */
+.vm{max-width:960px}
+.vtabs{display:flex;border-bottom:1px solid var(--border);padding:0 14px;background:var(--c1);overflow-x:auto;-webkit-overflow-scrolling:touch}
+.vtab{padding:9px 12px;font-size:11px;font-weight:600;color:var(--t2);cursor:pointer;border-bottom:2px solid transparent;transition:var(--tr);white-space:nowrap;display:flex;align-items:center;gap:4px;background:none;border-top:none;border-right:none;border-left:none;font-family:var(--ff);flex-shrink:0}
+.vtab:hover{color:var(--t1)}.vtab.act{color:var(--gold);border-bottom-color:var(--gold)}
+.vcontent{display:flex;align-items:center;justify-content:center;padding:14px;min-height:440px;background:#050710}
+body.light .vcontent{background:#f3f4f6}
+.vcontent iframe{width:100%;height:480px;border:none;border-radius:var(--r2)}
+.vcontent img{max-width:100%;max-height:480px;border-radius:var(--r2);box-shadow:0 6px 28px rgba(0,0,0,.5)}
+.vnone{text-align:center;color:var(--t2);padding:28px}
+.vnone .vi{font-size:40px;margin-bottom:10px;opacity:.3;display:block}
+
+/* ── DELETE DIALOG ── */
+.dm{max-width:380px}
+.dbody{padding:24px 16px;text-align:center}
+.dico{width:52px;height:52px;background:var(--reddim);border:2px solid rgba(240,72,94,.3);border-radius:50%;margin:0 auto 14px;display:flex;align-items:center;justify-content:center;font-size:22px}
+.dtitle{font-size:15px;font-weight:800;margin-bottom:7px;color:var(--t0)}
+.ddesc{font-size:13px;color:var(--t2);line-height:1.6}
+.dname{color:var(--gold);font-weight:700}
+
+/* ── DETAIL ── */
+.detm{max-width:520px}
+.detbody{padding:14px 16px;display:flex;flex-direction:column;gap:11px}
+.dr{display:flex;flex-direction:column;gap:3px;padding-bottom:11px;border-bottom:1px solid var(--border)}
+.dr:last-child{border-bottom:none;padding-bottom:0}
+.dlbl{font-size:10px;font-weight:700;color:var(--t3);text-transform:uppercase;letter-spacing:1px}
+.dval{font-size:13px;color:var(--t0);font-weight:500;line-height:1.5}
+.dfiles{display:flex;flex-direction:column;gap:5px}
+.dfi{display:flex;align-items:center;gap:8px;background:var(--c1);border:1px solid var(--border);border-radius:var(--r2);padding:8px 10px;cursor:pointer;transition:var(--tr)}
+.dfi:hover{border-color:var(--teal)}
+.dfn{flex:1;font-size:12px;color:var(--t1)}
+.dfo{font-size:11px;color:var(--teal)}
+
+/* ── CONTEXT MENU ── */
+.ctx{position:fixed;background:var(--c2);border:1px solid var(--border);border-radius:var(--r2);padding:4px;min-width:165px;box-shadow:0 8px 32px rgba(0,0,0,.6);z-index:9000;display:none;direction:rtl}
+.ctx.show{display:block}
+.ci{display:flex;align-items:center;gap:7px;padding:7px 10px;border-radius:5px;font-size:12px;font-weight:500;color:var(--t1);cursor:pointer;transition:background .15s}
+.ci:hover{background:var(--c3);color:var(--t0)}
+.ci.dan:hover{background:var(--reddim);color:var(--red)}
+.csep{height:1px;background:var(--border);margin:3px 0}
+
+/* ── TOAST ── */
+.tc{position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:9999;display:flex;flex-direction:column;gap:6px;pointer-events:none;align-items:center;width:calc(100% - 28px);max-width:380px}
+.toast{background:var(--c2);border:1px solid var(--border);border-radius:var(--r2);padding:9px 14px;font-size:12px;font-weight:600;display:flex;align-items:center;gap:7px;box-shadow:0 6px 24px rgba(0,0,0,.5);pointer-events:all;width:100%;animation:tIn .35s cubic-bezier(.34,1.4,.64,1)}
+.toast.success{border-color:rgba(15,186,126,.4);color:var(--green)}
+.toast.error{border-color:rgba(240,72,94,.4);color:var(--red)}
+.toast.info{border-color:rgba(200,168,75,.4);color:var(--gold)}
+.toast.warning{border-color:rgba(245,158,11,.4);color:var(--orange)}
+@keyframes tIn{from{opacity:0;transform:translateY(-12px) scale(.92)}to{opacity:1;transform:translateY(0) scale(1)}}
+@keyframes tOut{from{opacity:1}to{opacity:0;transform:translateY(-12px) scale(.92)}}
+.fade-in{animation:fi .22s ease}
+@keyframes fi{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:translateY(0)}}
+
+/* ── DASHBOARD ── */
+.chart-wrapper{display:flex;gap:18px;flex-wrap:wrap;justify-content:center;padding:8px 0}
+.chart-container{position:relative;width:100%;max-width:360px;background:var(--c2);border:1px solid var(--border);border-radius:var(--r3);padding:14px}
+
+/* ── TRASH / AUDIT ── */
+.tab-inner-list{display:flex;flex-direction:column;gap:6px}
+.trash-item,.audit-item{display:flex;align-items:center;justify-content:space-between;gap:10px;background:var(--c1);border:1px solid var(--border);border-radius:var(--r2);padding:9px 12px;flex-wrap:wrap}
+.trash-item-name{font-size:13px;color:var(--t0);font-weight:600}
+.trash-item-meta{font-size:11px;color:var(--t2);margin-top:2px}
+.trash-item-acts{display:flex;gap:5px;flex-shrink:0}
+.audit-action{font-size:12px;color:var(--t1)}
+.audit-meta{font-size:11px;color:var(--t2);margin-top:2px}
+
+/* ── LOGIN ── */
+.login-overlay{position:fixed;inset:0;background:rgba(0,0,0,.92);backdrop-filter:blur(14px);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px}
+.login-card{background:linear-gradient(145deg,#131828,#0e1220);border:1px solid var(--border);border-radius:var(--r4);padding:36px 30px;width:100%;max-width:380px;text-align:center;box-shadow:var(--shadow-lg)}
+body.light .login-card{background:#fff;border-color:#e5e7eb}
+.login-card h2{font-family:var(--ffd);font-size:22px;margin-bottom:22px;color:var(--t0)}
+.login-card .field{margin-bottom:13px;text-align:right}
+.login-err{color:var(--red);font-size:12px;margin-top:8px;display:none;background:var(--reddim);padding:7px 10px;border-radius:var(--r1);border:1px solid rgba(240,72,94,.3)}
+
+/* ── MOBILE SIDEBAR OVERLAY ── */
+.sb-overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:299;display:none}
+.sb-overlay.show{display:block}
+
+/* ── PRINT ── */
+.print-only{display:none}
+@media print{
+  *{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}
+  body{background:#fff!important;color:#111!important;direction:rtl}
+  body::before{display:none!important}
+  .hdr-right,.toolbar,.tcard-acts,.ract,.pgn,.tc,.ctx,.ov,.stats,.db-bar,.sidebar,.login-overlay,.sb-overlay{display:none!important}
+  #app,body,.main{background:#fff!important}
+  .content-wrapper{display:block!important}
+  .hdr{position:static!important;background:#fff!important;border-bottom:2px solid #c8a84b!important;box-shadow:none!important;height:auto!important;padding:10px 16px!important}
+  .hdr-ico{display:none!important}.hdr-title{color:#111!important;font-size:15px!important}
+  .main{padding:10px!important;gap:10px!important;overflow:visible!important}
+  .tcard{background:#fff!important;border:1px solid #ddd!important;border-radius:4px!important}
+  .tcard-hdr{background:#f5f5f5!important;border-bottom:1px solid #ddd!important;padding:8px 12px!important}
+  .tcard-title{color:#111!important}.dot{display:none!important}
+  .tscroll{overflow:visible!important}
+  table{min-width:0!important;font-size:10px!important}
+  thead tr{background:#c8a84b!important}
+  th{background:#c8a84b!important;color:#fff!important;padding:6px 8px!important;font-size:9px!important;border:1px solid #b09030!important}
+  .sa{display:none!important}
+  tbody tr{page-break-inside:avoid;break-inside:avoid}
+  tbody tr:nth-child(even){background:#fdfaf4!important}
+  td{padding:6px 8px!important;color:#222!important;border:1px solid #e8e8e8!important}
+  td.nm{color:#111!important;font-weight:700!important}
+  td.nt{display:table-cell!important;max-width:none!important;white-space:normal!important;overflow:visible!important}
+  .badge{padding:1px 5px!important;border-radius:3px!important;font-size:9px!important;border:1px solid #ccc!important;color:#444!important;background:#f0f0f0!important}
+  .fcnt{background:transparent!important;border:1px solid #ccc!important;color:#444!important;font-size:9px!important}
+  .dbadge{background:transparent!important;border:none!important;color:#444!important;padding:0!important}
+  .print-only{display:block!important;text-align:center;font-size:9px;color:#888;border-top:1px solid #ddd;padding-top:6px;margin-top:10px}
+}
+
+/* ── RESPONSIVE ── */
+@media(max-width:1024px){.stats{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:768px){
+  :root{--sidebar-w:240px}
+  .sidebar{position:fixed;top:calc(var(--header-h) + var(--dbbar-h));right:0;bottom:0;transform:translateX(100%);z-index:300;box-shadow:-4px 0 20px rgba(0,0,0,.4)}
+  .sidebar.mobile-open{transform:translateX(0);width:var(--sidebar-w)!important}
+  .main{padding:12px 13px;gap:12px}
+  .stats{grid-template-columns:repeat(2,1fr);gap:8px}
+  .sc{padding:11px;gap:8px}.sc-val{font-size:19px}.sc-ico{width:34px;height:34px;font-size:16px}
+  .toolbar{gap:6px}
+  .srch{min-width:0;width:100%}
+  .flt{flex:1;min-width:0;font-size:11px;padding:7px 8px}
+  table{font-size:12px}
+  th{padding:8px 9px;font-size:9px}
+  td{padding:9px 9px}
+  td.nt,td.pl{display:none}
+  .hdr{padding:0 12px}
+  .db-bar{padding:5px 12px}
+  .hdr-sub{display:none}
+  .hdr-title{font-size:14px}
+}
+@media(max-width:480px){
+  .stats{grid-template-columns:repeat(2,1fr)}
+  .sc-val{font-size:17px}
+}
+</style>
+</head>
+<body>
+<div id="app">
+
+<!-- LOADING SCREEN -->
+<div id="loadingScreen">
+  <span class="load-icon">⚙️</span>
+  <div class="load-title">نظام إدارة قوائم الأسعار</div>
+  <div class="load-sub" id="loadMsg">جاري تهيئة قاعدة البيانات...</div>
+  <div class="load-bar"><div class="load-bar-inner" id="loadBar"></div></div>
+</div>
+
+<!-- INIT SCREEN -->
+<div id="initScreen" style="display:none">
+  <div class="init-card">
+    <span class="init-icon">🗄️</span>
+    <div class="init-title">قاعدة بيانات SQLite</div>
+    <div class="init-desc">اختر قاعدة بيانات موجودة أو أنشئ قاعدة جديدة.<br>البيانات تُحفظ تلقائياً في OPFS (Origin Private File System).</div>
+    <div class="init-btns" id="initBtns">
+      <div class="init-btn" onclick="createNewDatabase()">
+        <div class="init-btn-ico">✨</div>
+        <div class="init-btn-info"><h4>إنشاء قاعدة بيانات جديدة</h4><p>البدء من الصفر</p></div>
+      </div>
+    </div>
+    <div id="existingDbList" style="margin-top:14px"></div>
+    <div class="init-note">💾 البيانات محفوظة بأمان في المتصفح عبر OPFS — لا حاجة لاتصال إنترنت.</div>
+  </div>
+</div>
+
+<!-- HEADER -->
+<header class="hdr">
+  <div class="hdr-brand">
+    <div class="hdr-ico">🏥</div>
+    <div>
+      <div class="hdr-title">نظام إدارة قوائم الأسعار</div>
+      <div class="hdr-sub">SQLite · OPFS · Price Lists Management</div>
+    </div>
+  </div>
+  <div class="hdr-right">
+    <button class="btn btn-ghost btn-ico" onclick="toggleSidebarMobile()" id="menuBtn" style="display:none" title="القائمة">☰</button>
+    <button class="btn btn-ghost btn-ico" onclick="toggleTheme()" title="تبديل المظهر">🌓</button>
+    <button class="btn btn-primary btn-sm edit-only" onclick="openAddModal()" style="display:none">＋ إضافة</button>
+    <button class="btn btn-ghost btn-ico" onclick="logout()" id="logoutBtn" style="display:none" title="تسجيل خروج">🚪</button>
+  </div>
+</header>
+
+<!-- DB BAR -->
+<div class="db-bar" id="dbBar">
+  <div class="db-file">
+    <div class="db-file-ico">🗄️</div>
+    <div>
+      <div class="db-file-name" id="dbFileName">لم يتم تحميل قاعدة البيانات</div>
+      <div class="db-file-meta" id="dbFileMeta">SQLite · OPFS</div>
+    </div>
+  </div>
+  <div class="db-actions">
+    <div class="save-ind nofile" id="saveInd"><div class="save-dot"></div><span id="saveText">غير متصل</span></div>
+    <button class="btn btn-ghost btn-sm" onclick="manualVacuum()" title="ضغط قاعدة البيانات">🗜</button>
+    <button class="btn btn-ghost btn-sm" onclick="exportDatabase()" title="تصدير النسخة الاحتياطية">⬇️ نسخ</button>
+    <button class="btn btn-ghost btn-sm" onclick="importDatabase()" title="استيراد نسخة احتياطية">⬆️ استيراد</button>
+    <button class="btn btn-ghost btn-sm" onclick="doPrint()" title="طباعة">🖨</button>
+    <button class="btn btn-ghost btn-sm" onclick="doExportCSV()" title="تصدير CSV">📊</button>
+    <button class="btn btn-ghost btn-sm" onclick="changeDatabase()" title="تغيير قاعدة البيانات">📂</button>
+  </div>
+</div>
+
+<!-- CONTENT WRAPPER -->
+<div class="content-wrapper" id="contentWrapper">
+  <div class="sb-overlay" id="sbOverlay" onclick="closeSidebarMobile()"></div>
+
+  <!-- SIDEBAR -->
+  <div class="sidebar" id="sidebar">
+    <div class="sidebar-toggle" onclick="toggleSidebar()">
+      <span class="sb-tgl-title">القائمة الرئيسية</span>
+      <span class="sb-tgl-ico">◀</span>
+    </div>
+    <nav class="sidebar-nav">
+      <button class="nav-item active" id="nav-records" onclick="switchTab('records')">
+        <span class="nav-item-ico">📋</span><span class="nav-item-label">السجلات</span>
+        <span class="nav-badge" id="nav-badge-records">0</span>
+      </button>
+      <button class="nav-item" id="nav-dashboard" onclick="switchTab('dashboard')">
+        <span class="nav-item-ico">📊</span><span class="nav-item-label">لوحة التحكم</span>
+      </button>
+      <div class="nav-sep"></div>
+      <button class="nav-item" id="nav-trash" onclick="switchTab('trash')">
+        <span class="nav-item-ico">🗑</span><span class="nav-item-label">سلة المهملات</span>
+        <span class="nav-badge" id="nav-badge-trash" style="display:none;background:var(--red);color:#fff">0</span>
+      </button>
+      <button class="nav-item" id="nav-audit" onclick="switchTab('audit')">
+        <span class="nav-item-ico">📝</span><span class="nav-item-label">سجل التدقيق</span>
+      </button>
+      <button class="nav-item admin-only" id="nav-users" onclick="switchTab('users')" style="display:none">
+        <span class="nav-item-ico">👥</span><span class="nav-item-label">المستخدمين</span>
+      </button>
+    </nav>
+    <div class="sidebar-footer">
+      <div class="sb-user-avatar" id="sbAvatar">?</div>
+      <div class="sb-user-info">
+        <div class="sb-user-name" id="sbUserName">غير مسجل</div>
+        <div class="sb-user-role" id="sbUserRole">—</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MAIN -->
+  <main class="main" id="mainArea">
+    <div class="stats">
+      <div class="sc gold"><div class="sc-ico gold">📋</div><div><div class="sc-val" id="s-total">0</div><div class="sc-lbl">إجمالي</div></div></div>
+      <div class="sc blue"><div class="sc-ico blue">🩺</div><div><div class="sc-val" id="s-doc">0</div><div class="sc-lbl">أطباء</div></div></div>
+      <div class="sc green"><div class="sc-ico green">🏢</div><div><div class="sc-val" id="s-cen">0</div><div class="sc-lbl">مراكز</div></div></div>
+      <div class="sc teal"><div class="sc-ico teal">🏥</div><div><div class="sc-val" id="s-hos">0</div><div class="sc-lbl">مستشفيات</div></div></div>
+    </div>
+
+    <!-- RECORDS TAB -->
+    <div id="tab-records">
+      <div class="toolbar" style="margin-bottom:10px">
+        <div class="srch" style="width:100%;flex:none">
+          <span class="srch-ico">🔍</span>
+          <input type="text" id="srchQ" placeholder="ابحث بالاسم، الكود، القائمة، الوسوم..." oninput="doFilter()">
+          <button class="voice-btn-i" id="voiceBtn" onclick="toggleVoice()" title="بحث صوتي">🎤</button>
+        </div>
+        <select class="flt" id="fType" onchange="doFilter()">
+          <option value="">كل الأنواع</option><option value="doctor">🩺 طبيب</option>
+          <option value="center">🏢 مركز</option><option value="hospital">🏥 مستشفى</option><option value="other">📋 أخرى</option>
+        </select>
+        <select class="flt" id="fStatus" onchange="doFilter()">
+          <option value="">كل الحالات</option><option value="active">✅ نشط</option>
+          <option value="inactive">⛔ غير نشط</option><option value="pending">⏳ انتظار</option>
+        </select>
+        <select class="flt" id="fFiles" onchange="doFilter()">
+          <option value="">كل السجلات</option><option value="has">لها ملفات</option><option value="none">بدون ملفات</option>
+        </select>
+        <select class="flt" id="fFav" onchange="doFilter()">
+          <option value="">الكل</option><option value="fav">⭐ مفضلة</option>
+        </select>
+        <button class="btn btn-ghost btn-ico" onclick="clearF()" title="مسح الفلاتر">🗑</button>
+      </div>
+      <div class="tcard">
+        <div class="tcard-hdr">
+          <div class="tcard-title"><div class="dot"></div><span id="tCaption">جميع السجلات</span></div>
+          <div class="tcard-acts">
+            <button class="btn btn-danger btn-sm edit-only" id="selInfo" style="display:none" onclick="delSelected()">🗑 حذف (<span id="selCnt">0</span>)</button>
+            <button class="btn btn-ghost btn-sm" onclick="selAll()">☑ الكل</button>
+          </div>
+        </div>
+        <div class="tscroll">
+          <table id="mainTbl">
+            <thead><tr>
+              <th style="width:34px"><input type="checkbox" id="chkAll" onchange="selAll()" style="cursor:pointer;accent-color:var(--gold)"></th>
+              <th onclick="sortBy('id')" data-col="id" class="sorted desc"># <i class="sa">▼</i></th>
+              <th onclick="sortBy('code')" data-col="code">الكود <i class="sa">▼</i></th>
+              <th onclick="sortBy('name')" data-col="name">الاسم <i class="sa">▼</i></th>
+              <th onclick="sortBy('type')" data-col="type">النوع <i class="sa">▼</i></th>
+              <th onclick="sortBy('price_list_name')" data-col="price_list_name">القائمة <i class="sa">▼</i></th>
+              <th>الملفات</th>
+              <th onclick="sortBy('activation_date')" data-col="activation_date">التفعيل <i class="sa">▼</i></th>
+              <th onclick="sortBy('expiry_date')" data-col="expiry_date">انتهاء <i class="sa">▼</i></th>
+              <th onclick="sortBy('status')" data-col="status">الحالة <i class="sa">▼</i></th>
+              <th class="nt">الملاحظات</th>
+              <th>إجراءات</th>
+            </tr></thead>
+            <tbody id="tBody"></tbody>
+          </table>
+        </div>
+        <div id="emptyEl" class="empty" style="display:none">
+          <span class="ei">📭</span><h3>لا توجد سجلات</h3><p>لم يتم العثور على سجلات مطابقة.</p>
+        </div>
+        <div class="pgn"><div class="pgn-info" id="pgnInfo"></div><div class="pgn-btns" id="pgnBtns"></div></div>
+      </div>
+    </div>
+
+    <!-- DASHBOARD TAB -->
+    <div id="tab-dashboard" style="display:none">
+      <div class="chart-wrapper">
+        <div class="chart-container"><canvas id="chartType"></canvas></div>
+        <div class="chart-container"><canvas id="chartStatus"></canvas></div>
+      </div>
+      <div style="text-align:center;margin-top:14px">
+        <button class="btn btn-primary" onclick="exportPDF()">📄 تصدير تقرير PDF</button>
+      </div>
+    </div>
+
+    <!-- TRASH TAB -->
+    <div id="tab-trash" style="display:none"><div id="trashContent"></div></div>
+
+    <!-- AUDIT TAB -->
+    <div id="tab-audit" style="display:none"><div id="auditContent"></div></div>
+
+    <!-- USERS TAB -->
+    <div id="tab-users" style="display:none"><div id="usersContent"></div></div>
+  </main>
+</div>
+
+<div class="print-only" id="printFooter"></div>
+
+<!-- LOGIN -->
+<div class="login-overlay" id="loginOverlay" style="display:none">
+  <div class="login-card">
+    <h2>🔐 تسجيل الدخول</h2>
+    <div class="field"><label class="flbl">اسم المستخدم</label><input class="finp" id="loginUser" autocomplete="username" onkeydown="if(event.key==='Enter')doLogin()"></div>
+    <div class="field"><label class="flbl">كلمة المرور</label><input class="finp" type="password" id="loginPass" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()"></div>
+    <div class="login-err" id="loginError">اسم المستخدم أو كلمة المرور غير صحيحة</div>
+    <button class="btn btn-primary" style="width:100%;margin-top:14px;padding:10px" onclick="doLogin()">دخول</button>
+  </div>
+</div>
+
+<!-- ADD/EDIT MODAL -->
+<div class="ov" id="aeOv" onclick="ovClick(event,'aeOv')">
+  <div class="modal">
+    <div class="mhdr">
+      <div class="mhdr-l"><div class="mico gold" id="mIco">➕</div><div><div class="mtitle" id="mTitle">إضافة سجل</div><div class="msub" id="mSub">بيانات الطبيب أو المركز</div></div></div>
+      <button class="mclose" onclick="closeModal('aeOv')">✕</button>
+    </div>
+    <div class="mbody">
+      <div class="frow">
+        <div class="field"><label class="flbl">النوع <span class="req">*</span></label>
+          <select class="finp" id="fType2">
+            <option value="doctor">🩺 طبيب</option><option value="center">🏢 مركز طبي</option>
+            <option value="hospital">🏥 مستشفى</option><option value="other">📋 أخرى</option>
+          </select>
+        </div>
+        <div class="field"><label class="flbl">الكود <span class="req">*</span></label>
+          <input type="text" class="finp" id="fCode" placeholder="D-001">
+          <span class="ferr" id="eCode">مطلوب</span>
+        </div>
+      </div>
+      <div class="field"><label class="flbl">الاسم الكامل <span class="req">*</span></label>
+        <input type="text" class="finp" id="fName" placeholder="اسم الطبيب أو المركز أو المستشفى">
+        <span class="ferr" id="eName">مطلوب</span>
+      </div>
+      <div class="field"><label class="flbl">اسم قائمة الأسعار</label>
+        <input type="text" class="finp" id="fPriceList" placeholder="مثال: قائمة أسعار 2024">
+      </div>
+      <div class="frow">
+        <div class="field"><label class="flbl">تاريخ التفعيل</label><input type="date" class="finp" id="fDate"></div>
+        <div class="field"><label class="flbl">تاريخ انتهاء العقد</label><input type="date" class="finp" id="fExpiry"></div>
+      </div>
+      <div class="frow">
+        <div class="field"><label class="flbl">الهاتف</label><input type="text" class="finp" id="fPhone" placeholder="رقم الهاتف" inputmode="tel"></div>
+        <div class="field"><label class="flbl">البريد الإلكتروني</label><input type="email" class="finp" id="fEmail" placeholder="email@example.com"></div>
+      </div>
+      <div class="field"><label class="flbl">العنوان</label><input type="text" class="finp" id="fAddress" placeholder="العنوان الكامل"></div>
+      <div class="field"><label class="flbl">الوسوم — افصل بفاصلة</label><input type="text" class="finp" id="fTags" placeholder="عظام, أسنان, باطنة..."></div>
+      <div class="frow">
+        <div class="field"><label class="flbl">الحالة</label>
+          <select class="finp" id="fStat">
+            <option value="active">✅ نشط</option><option value="inactive">⛔ غير نشط</option><option value="pending">⏳ انتظار</option>
+          </select>
+        </div>
+        <div class="field"><label class="flbl">⭐ مفضلة</label>
+          <select class="finp" id="fFav2"><option value="0">لا</option><option value="1">نعم</option></select>
+        </div>
+      </div>
+      <div class="upsec">
+        <div class="uplbl">📎 ملفات قائمة الأسعار</div>
+        <div class="upzone" id="upZone" onclick="triggerFileInput()" role="button" tabindex="0" onkeydown="if(event.key==='Enter')triggerFileInput()">
+          <div class="upzone-ico">☁️</div>
+          <div class="upzone-txt"><strong>انقر هنا</strong> أو اسحب الملفات</div>
+          <div class="upzone-hint">PDF · Word · Excel · JPG · PNG · كل الصيغ</div>
+        </div>
+        <button class="btn btn-ghost btn-sm" onclick="openCamera()" type="button">📷 التقاط صورة</button>
+        <div class="flist" id="fList"></div>
+      </div>
+      <div class="field"><label class="flbl">الملاحظات</label><textarea class="finp" id="fNotes" placeholder="ملاحظات إضافية..."></textarea></div>
+    </div>
+    <div class="mfoot">
+      <button class="btn btn-primary" onclick="saveRec()">💾 حفظ</button>
+      <button class="btn btn-ghost" onclick="closeModal('aeOv')">إلغاء</button>
+    </div>
+  </div>
+</div>
+
+<!-- DELETE MODAL -->
+<div class="ov" id="delOv" onclick="ovClick(event,'delOv')">
+  <div class="modal dm">
+    <div class="mhdr"><div class="mhdr-l"><div class="mtitle">تأكيد الحذف</div></div><button class="mclose" onclick="closeModal('delOv')">✕</button></div>
+    <div class="dbody"><div class="dico">🗑️</div><div class="dtitle">هل أنت متأكد؟</div><div class="ddesc">سيتم نقل <span class="dname" id="delName"></span> إلى سلة المهملات.</div></div>
+    <div class="mfoot"><button class="btn btn-danger" onclick="confirmDel()">🗑️ حذف</button><button class="btn btn-ghost" onclick="closeModal('delOv')">إلغاء</button></div>
+  </div>
+</div>
+
+<!-- VIEWER MODAL -->
+<div class="ov" id="viewOv" onclick="ovClick(event,'viewOv')">
+  <div class="modal vm">
+    <div class="mhdr">
+      <div class="mhdr-l"><div class="mico gold">📂</div><div><div class="mtitle" id="vTitle">عرض الملفات</div><div class="msub" id="vSub"></div></div></div>
+      <button class="mclose" onclick="closeViewer()">✕</button>
+    </div>
+    <div class="vtabs" id="vTabs"></div>
+    <div class="vcontent" id="vContent"></div>
+    <div class="mfoot">
+      <button class="btn btn-teal" onclick="dlCurrent()">⬇️ تحميل</button>
+      <button class="btn btn-ghost" onclick="downloadAllFiles()">📦 ZIP</button>
+      <button class="btn btn-ghost" onclick="closeViewer()">إغلاق</button>
+      <div style="flex:1"></div><span id="vInfo" style="font-size:11px;color:var(--t2)"></span>
+    </div>
+  </div>
+</div>
+
+<!-- DETAIL MODAL -->
+<div class="ov" id="detOv" onclick="ovClick(event,'detOv')">
+  <div class="modal detm">
+    <div class="mhdr">
+      <div class="mhdr-l"><div class="mico gold">👁</div><div><div class="mtitle" id="detName">تفاصيل</div><div class="msub" id="detCode"></div></div></div>
+      <button class="mclose" onclick="closeModal('detOv')">✕</button>
+    </div>
+    <div class="detbody" id="detBody"></div>
+    <div class="mfoot"><button class="btn btn-primary" id="detEditBtn" style="display:none">✏️ تعديل</button><button class="btn btn-ghost" onclick="closeModal('detOv')">إغلاق</button></div>
+  </div>
+</div>
+
+<!-- CONTEXT MENU -->
+<div class="ctx" id="ctxMenu">
+  <div class="ci" id="ctxView">👁 عرض التفاصيل</div>
+  <div class="ci" id="ctxEdit">✏️ تعديل</div>
+  <div class="ci" id="ctxFiles">📂 عرض الملفات</div>
+  <div class="ci" id="ctxFav">⭐ تفضيل / إلغاء</div>
+  <div class="csep"></div>
+  <div class="ci dan" id="ctxDel">🗑️ حذف</div>
+</div>
+
+<div class="tc" id="toastC"></div>
+
+<input type="file" id="globalFileInput" multiple
+  accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.bmp,.gif,.webp,.tiff,.svg"
+  style="position:fixed;top:-9999px;opacity:0;pointer-events:none" onchange="handleFileSelect(event)">
+<input type="file" id="importDbInput" accept=".db,.sqlite,.sqlite3"
+  style="position:fixed;top:-9999px;opacity:0;pointer-events:none" onchange="handleImportDB(event)">
+<video id="cameraVideo" autoplay playsinline style="display:none;position:fixed;inset:0;z-index:99999;object-fit:cover;background:#000;width:100%;height:100%"></video>
+<canvas id="cameraCanvas" style="display:none"></canvas>
+
+<script>
+'use strict';
+/* =====================================================================
+   wa-sqlite loader — dynamic import with fallback to localStorage mode
+   ===================================================================== */
+let DB        = null;   // SQLiteAPI instance
+let db_ptr    = 0;      // database pointer
+let DB_NAME   = '';     // current database name in OPFS
+let OPFS_OK   = false;  // whether OPFS is available
+
+const S = {
+  fil:[], page:1, ps:15, sc:'id', sd:'desc',
+  editId:null, delId:null,
+  vFiles:[], vIdx:0, vBlobs:[],
+  sel:new Set(),
+  saveStatus:'nofile',
+  theme: localStorage.getItem('theme')||'dark',
+  currentUser:null,
+  currentTab:'records'
+};
+
+/* ── helpers ── */
+function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
+function fmtDate(d){if(!d)return'—';try{return new Date(d).toLocaleDateString('ar-EG',{year:'numeric',month:'short',day:'numeric'})}catch{return d}}
+function fmtSize(b){if(!b)return'';if(b<1024)return b+' B';if(b<1048576)return(b/1024).toFixed(1)+' KB';return(b/1048576).toFixed(1)+' MB'}
+function today(){return new Date().toISOString().split('T')[0]}
+function setLoad(msg,pct){const m=document.getElementById('loadMsg');const b=document.getElementById('loadBar');if(m)m.textContent=msg;if(b)b.style.width=pct+'%'}
+
+function toast(msg,type='info',dur=3500){
+  const icons={success:'✅',error:'❌',info:'ℹ️',warning:'⚠️'};
+  const el=document.createElement('div');el.className=`toast ${type}`;
+  el.innerHTML=`<span>${icons[type]||'ℹ️'}</span><span>${msg}</span>`;
+  const c=document.getElementById('toastC');if(!c)return;c.appendChild(el);
+  setTimeout(()=>{el.style.animation='tOut .3s ease forwards';setTimeout(()=>{if(el.parentNode)el.parentNode.removeChild(el)},300)},dur);
+}
+
+/* =====================================================================
+   SECURITY — password hashing (PBKDF2)
+   ===================================================================== */
+async function hashPassword(pw){
+  const enc=new TextEncoder();
+  const salt=crypto.getRandomValues(new Uint8Array(16));
+  const km=await crypto.subtle.importKey('raw',enc.encode(pw),'PBKDF2',false,['deriveBits']);
+  const hash=await crypto.subtle.deriveBits({name:'PBKDF2',salt,iterations:100000,hash:'SHA-256'},km,256);
+  const h=Array.from(new Uint8Array(hash)).map(b=>b.toString(16).padStart(2,'0')).join('');
+  const s=Array.from(salt).map(b=>b.toString(16).padStart(2,'0')).join('');
+  return{hash:h,salt:s};
+}
+async function verifyPassword(pw,hash,salt){
+  try{
+    const sarr=new Uint8Array(salt.match(/.{1,2}/g).map(b=>parseInt(b,16)));
+    const km=await crypto.subtle.importKey('raw',new TextEncoder().encode(pw),'PBKDF2',false,['deriveBits']);
+    const h=await crypto.subtle.deriveBits({name:'PBKDF2',salt:sarr,iterations:100000,hash:'SHA-256'},km,256);
+    const computed=Array.from(new Uint8Array(h)).map(b=>b.toString(16).padStart(2,'0')).join('');
+    return computed===hash;
+  }catch{return false}
+}
+
+/* =====================================================================
+   SQLite DATABASE LAYER
+   ===================================================================== */
+async function initSQLite(){
+  setLoad('تحميل محرك SQLite...',20);
+  try{
+    // Dynamic import of wa-sqlite
+    const mod = await import('https://cdn.jsdelivr.net/npm/wa-sqlite@0.9.9/dist/wa-sqlite-async.mjs');
+    const factory = mod.default;
+    setLoad('تهيئة OPFS...',40);
+
+    // Check OPFS support
+    if('storage' in navigator && 'getDirectory' in navigator.storage){
+      OPFS_OK=true;
+    }
+
+    const SQLite = await factory();
+    DB = SQLite;
+    setLoad('SQLite جاهز',60);
+    return true;
+  }catch(e){
+    console.error('wa-sqlite load failed:',e);
+    // Fallback: use in-memory SQLite via sql.js
+    return await initSQLjs();
+  }
+}
+
+async function initSQLjs(){
+  setLoad('تحميل sql.js (احتياطي)...',30);
+  try{
+    const script=document.createElement('script');
+    script.src='https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.2/sql-wasm.js';
+    await new Promise((res,rej)=>{script.onload=res;script.onerror=rej;document.head.appendChild(script)});
+    const SQL=await initSqlJs({locateFile:f=>`https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.2/${f}`});
+    // Wrap sql.js API to match our interface
+    DB={_SQL:SQL,_sqljs:true};
+    OPFS_OK=false;
+    setLoad('sql.js جاهز (OPFS غير متاح)',60);
+    return true;
+  }catch(e){
+    console.error('sql.js also failed:',e);
+    return false;
+  }
+}
+
+/* ── Open or create a database ── */
+async function openDatabase(name){
+  DB_NAME=name;
+  try{
+    if(DB._sqljs){
+      // sql.js in-memory mode
+      const saved=localStorage.getItem('sqlitedb_'+name);
+      if(saved){
+        const arr=Uint8Array.from(atob(saved),c=>c.charCodeAt(0));
+        DB._db=new DB._SQL.Database(arr);
+      }else{
+        DB._db=new DB._SQL.Database();
+      }
+      await createTables_sqljs();
+      return true;
+    }else{
+      // wa-sqlite with OPFS
+      const filename=OPFS_OK?name+'.sqlite3':':memory:';
+      db_ptr=await DB.open_v2(filename,0x00000006|0x00000002);
+      await createTables_wasqlite();
+      return true;
+    }
+  }catch(e){
+    console.error('openDatabase error:',e);
+    return false;
+  }
+}
+
+/* ── CREATE TABLES ── */
+async function createTables_wasqlite(){
+  const sqls=[
+    `CREATE TABLE IF NOT EXISTS records (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      code TEXT UNIQUE NOT NULL,
+      name TEXT NOT NULL,
+      type TEXT DEFAULT 'other',
+      price_list_name TEXT DEFAULT '',
+      activation_date TEXT DEFAULT '',
+      expiry_date TEXT DEFAULT '',
+      phone TEXT DEFAULT '',
+      email TEXT DEFAULT '',
+      address TEXT DEFAULT '',
+      tags TEXT DEFAULT '[]',
+      status TEXT DEFAULT 'active',
+      is_favorite INTEGER DEFAULT 0,
+      notes TEXT DEFAULT '',
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    )`,
+    `CREATE TABLE IF NOT EXISTS files (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      record_id INTEGER NOT NULL,
+      name TEXT NOT NULL,
+      type TEXT DEFAULT '',
+      size INTEGER DEFAULT 0,
+      data TEXT NOT NULL,
+      created_at TEXT DEFAULT (datetime('now')),
+      FOREIGN KEY(record_id) REFERENCES records(id) ON DELETE CASCADE
+    )`,
+    `CREATE TABLE IF NOT EXISTS trash (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      original_id INTEGER,
+      data TEXT NOT NULL,
+      trashed_at TEXT DEFAULT (datetime('now'))
+    )`,
+    `CREATE TABLE IF NOT EXISTS audit_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      action TEXT NOT NULL,
+      record_id INTEGER,
+      description TEXT DEFAULT '',
+      username TEXT DEFAULT '',
+      created_at TEXT DEFAULT (datetime('now'))
+    )`,
+    `CREATE TABLE IF NOT EXISTS users (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      username TEXT UNIQUE NOT NULL,
+      hash TEXT NOT NULL,
+      salt TEXT NOT NULL,
+      role TEXT DEFAULT 'viewer',
+      created_at TEXT DEFAULT (datetime('now'))
+    )`,
+    `CREATE TABLE IF NOT EXISTS app_meta (
+      key TEXT PRIMARY KEY,
+      value TEXT DEFAULT ''
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_records_code ON records(code)`,
+    `CREATE INDEX IF NOT EXISTS idx_records_type ON records(type)`,
+    `CREATE INDEX IF NOT EXISTS idx_records_status ON records(status)`,
+    `CREATE INDEX IF NOT EXISTS idx_files_record ON files(record_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_audit_time ON audit_log(created_at DESC)`
+  ];
+  for(const sql of sqls) await exec(sql);
+}
+
+async function createTables_sqljs(){
+  const sqls=[
+    `CREATE TABLE IF NOT EXISTS records(id INTEGER PRIMARY KEY AUTOINCREMENT,code TEXT UNIQUE NOT NULL,name TEXT NOT NULL,type TEXT DEFAULT 'other',price_list_name TEXT DEFAULT '',activation_date TEXT DEFAULT '',expiry_date TEXT DEFAULT '',phone TEXT DEFAULT '',email TEXT DEFAULT '',address TEXT DEFAULT '',tags TEXT DEFAULT '[]',status TEXT DEFAULT 'active',is_favorite INTEGER DEFAULT 0,notes TEXT DEFAULT '',created_at TEXT DEFAULT(datetime('now')),updated_at TEXT DEFAULT(datetime('now')))`,
+    `CREATE TABLE IF NOT EXISTS files(id INTEGER PRIMARY KEY AUTOINCREMENT,record_id INTEGER NOT NULL,name TEXT NOT NULL,type TEXT DEFAULT '',size INTEGER DEFAULT 0,data TEXT NOT NULL,created_at TEXT DEFAULT(datetime('now')))`,
+    `CREATE TABLE IF NOT EXISTS trash(id INTEGER PRIMARY KEY AUTOINCREMENT,original_id INTEGER,data TEXT NOT NULL,trashed_at TEXT DEFAULT(datetime('now')))`,
+    `CREATE TABLE IF NOT EXISTS audit_log(id INTEGER PRIMARY KEY AUTOINCREMENT,action TEXT NOT NULL,record_id INTEGER,description TEXT DEFAULT '',username TEXT DEFAULT '',created_at TEXT DEFAULT(datetime('now')))`,
+    `CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY AUTOINCREMENT,username TEXT UNIQUE NOT NULL,hash TEXT NOT NULL,salt TEXT NOT NULL,role TEXT DEFAULT 'viewer',created_at TEXT DEFAULT(datetime('now')))`,
+    `CREATE TABLE IF NOT EXISTS app_meta(key TEXT PRIMARY KEY,value TEXT DEFAULT '')`
+  ];
+  for(const sql of sqls) await exec(sql);
+}
+
+/* ── SQL EXECUTION WRAPPERS ── */
+async function exec(sql,params=[]){
+  if(DB._sqljs){
+    DB._db.run(sql,params);
+    return;
+  }
+  // wa-sqlite
+  for await(const stmt of DB.statements(db_ptr,sql)){
+    if(params.length) DB.bind_collection(stmt,params);
+    while(await DB.step(stmt)===DB.ROW){}
+    DB.finalize(stmt);
+  }
+}
+
+async function query(sql,params=[]){
+  if(DB._sqljs){
+    const res=DB._db.exec(sql,params);
+    if(!res.length)return[];
+    const{columns,values}=res[0];
+    return values.map(row=>{const o={};columns.forEach((c,i)=>o[c]=row[i]);return o});
+  }
+  // wa-sqlite
+  const rows=[];
+  for await(const stmt of DB.statements(db_ptr,sql)){
+    if(params.length) DB.bind_collection(stmt,params);
+    const cols=DB.column_names(stmt);
+    while(await DB.step(stmt)===DB.ROW){
+      const row={};cols.forEach((c,i)=>row[c]=DB.column(stmt,i));rows.push(row);
+    }
+    DB.finalize(stmt);
+  }
+  return rows;
+}
+
+async function queryOne(sql,params=[]){
+  const rows=await query(sql,params);
+  return rows[0]||null;
+}
+
+async function getLastInsertId(){
+  const r=await queryOne('SELECT last_insert_rowid() as id');
+  return r?r.id:0;
+}
+
+/* ── AUTO-SAVE for sql.js ── */
+function scheduleSqlJsSave(){
+  if(!DB._sqljs)return;
+  clearTimeout(S._saveTimer);
+  S._saveTimer=setTimeout(()=>{
+    try{
+      const data=DB._db.export();
+      const b64=btoa(String.fromCharCode(...data));
+      localStorage.setItem('sqlitedb_'+DB_NAME,b64);
+      setSaveStatus('saved');
+    }catch(e){setSaveStatus('nofile')}
+  },600);
+}
+
+/* ── AUDIT LOG ── */
+async function addAudit(action,recordId,description){
+  const username=S.currentUser?S.currentUser.username:'نظام';
+  await exec('INSERT INTO audit_log(action,record_id,description,username) VALUES(?,?,?,?)',
+    [action,recordId||null,description,username]);
+  if(DB._sqljs)scheduleSqlJsSave();
+}
+
+/* =====================================================================
+   DATABASE LIST (OPFS)
+   ===================================================================== */
+async function listOPFSDatabases(){
+  if(!OPFS_OK)return[];
+  try{
+    const root=await navigator.storage.getDirectory();
+    const names=[];
+    for await(const [name] of root.entries()){
+      if(name.endsWith('.sqlite3'))names.push(name.replace('.sqlite3',''));
+    }
+    return names;
+  }catch{return[]}
+}
+
+async function deleteOPFSDatabase(name){
+  if(!OPFS_OK)return;
+  try{
+    const root=await navigator.storage.getDirectory();
+    await root.removeEntry(name+'.sqlite3');
+  }catch(e){console.warn(e)}
+}
+
+/* =====================================================================
+   INIT SCREEN
+   ===================================================================== */
+async function showInitScreen(){
+  document.getElementById('initScreen').style.display='flex';
+  // Load existing databases
+  const existing=await listOPFSDatabases();
+  const listEl=document.getElementById('existingDbList');
+  if(existing.length){
+    listEl.innerHTML=`<div style="font-size:12px;font-weight:700;color:var(--t2);text-transform:uppercase;margin-bottom:8px">قواعد البيانات الموجودة</div>`
+      +existing.map(n=>`<div class="init-db-item" onclick="openExistingDatabase('${esc(n)}')">
+        <span style="font-size:22px">🗄️</span>
+        <div><div class="init-db-name">${esc(n)}</div><div class="init-db-meta">SQLite · OPFS</div></div>
+        <button class="btn btn-danger btn-sm" onclick="event.stopPropagation();deleteDatabase('${esc(n)}')" title="حذف">🗑</button>
+      </div>`).join('');
+  }else if(!OPFS_OK){
+    listEl.innerHTML=`<div style="font-size:12px;color:var(--orange);padding:10px;background:var(--orangedim);border-radius:var(--r2);border:1px solid rgba(245,158,11,.3)">⚠️ OPFS غير متاح في هذا المتصفح — سيتم استخدام التخزين المحلي.</div>`;
+  }
+}
+
+async function createNewDatabase(){
+  const name=prompt('اسم قاعدة البيانات:','قوائم-الاسعار');
+  if(!name||!name.trim())return;
+  const dbName=name.trim().replace(/[^a-zA-Z0-9\u0600-\u06FF\-_]/g,'');
+  if(!dbName){toast('❌ اسم غير صالح','error');return}
+  document.getElementById('initScreen').style.display='none';
+  setLoad('إنشاء قاعدة البيانات...',70);
+  document.getElementById('loadingScreen').style.display='flex';
+  const ok=await openDatabase(dbName);
+  if(!ok){toast('❌ فشل إنشاء قاعدة البيانات','error');showInitScreen();return}
+  await createSuperAdminPrompt();
+  document.getElementById('loadingScreen').style.display='none';
+  updateDBBar();
+  setSaveStatus('saved');
+  refresh();
+  toast('✨ تم إنشاء قاعدة البيانات: '+dbName,'success');
+}
+
+async function openExistingDatabase(name){
+  document.getElementById('initScreen').style.display='none';
+  setLoad('فتح قاعدة البيانات...',70);
+  document.getElementById('loadingScreen').style.display='flex';
+  const ok=await openDatabase(name);
+  if(!ok){toast('❌ فشل فتح قاعدة البيانات','error');showInitScreen();document.getElementById('loadingScreen').style.display='none';return}
+  const users=await query('SELECT * FROM users');
+  document.getElementById('loadingScreen').style.display='none';
+  updateDBBar();
+  if(!users.length){
+    await createSuperAdminPrompt();
+    refresh();
+  }else{
+    showLogin();
+    refresh();
+  }
+  toast(`📂 تم فتح: ${name}`,'success');
+}
+
+async function deleteDatabase(name){
+  if(!confirm(`حذف قاعدة البيانات "${name}" نهائياً؟`))return;
+  await deleteOPFSDatabase(name);
+  if(!OPFS_OK)localStorage.removeItem('sqlitedb_'+name);
+  toast('🗑 تم حذف قاعدة البيانات','success');
+  showInitScreen();
+}
+
+async function changeDatabase(){
+  if(db_ptr&&!DB._sqljs){try{await DB.close(db_ptr)}catch{}}
+  db_ptr=0;DB_NAME='';S.currentUser=null;
+  setSaveStatus('nofile');
+  document.getElementById('loadingScreen').style.display='none';
+  await showInitScreen();
+  document.getElementById('initScreen').style.display='flex';
+}
+
+/* =====================================================================
+   EXPORT / IMPORT DATABASE
+   ===================================================================== */
+async function exportDatabase(){
+  try{
+    let bytes;
+    if(DB._sqljs){
+      bytes=DB._db.export();
+    }else if(OPFS_OK){
+      const root=await navigator.storage.getDirectory();
+      const fh=await root.getFileHandle(DB_NAME+'.sqlite3');
+      const file=await fh.getFile();
+      bytes=new Uint8Array(await file.arrayBuffer());
+    }else{
+      toast('❌ التصدير غير متاح','error');return;
+    }
+    const blob=new Blob([bytes],{type:'application/octet-stream'});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');
+    a.href=url;a.download=DB_NAME+'-backup-'+today()+'.db';
+    document.body.appendChild(a);a.click();
+    setTimeout(()=>{document.body.removeChild(a);URL.revokeObjectURL(url)},1500);
+    toast('✅ تم تصدير النسخة الاحتياطية','success');
+  }catch(e){toast('❌ فشل التصدير: '+e.message,'error')}
+}
+
+function importDatabase(){document.getElementById('importDbInput').click()}
+
+async function handleImportDB(e){
+  const file=e.target.files[0];
+  e.target.value='';
+  if(!file)return;
+  if(!confirm(`استيراد "${file.name}"؟ سيتم استبدال البيانات الحالية.`))return;
+  try{
+    const arr=new Uint8Array(await file.arrayBuffer());
+    if(DB._sqljs){
+      DB._db=new DB._SQL.Database(arr);
+      await createTables_sqljs();
+      scheduleSqlJsSave();
+    }else if(OPFS_OK&&db_ptr){
+      // Write file to OPFS
+      const root=await navigator.storage.getDirectory();
+      const fh=await root.getFileHandle(DB_NAME+'.sqlite3',{create:true});
+      const writable=await fh.createWritable();
+      await writable.write(arr);
+      await writable.close();
+      // Reopen
+      await DB.close(db_ptr);
+      db_ptr=await DB.open_v2(DB_NAME+'.sqlite3',0x00000006|0x00000002);
+    }else{toast('❌ الاستيراد غير متاح في هذا الوضع','error');return}
+    refresh();
+    toast('✅ تم الاستيراد بنجاح','success');
+  }catch(e){toast('❌ فشل الاستيراد: '+e.message,'error')}
+}
+
+async function manualVacuum(){
+  try{
+    await exec('VACUUM');
+    toast('🗜 تم ضغط قاعدة البيانات','success');
+  }catch(e){toast('❌ '+e.message,'error')}
+}
+
+/* =====================================================================
+   PERMISSIONS
+   ===================================================================== */
+function hasAccess(action){
+  if(!S.currentUser)return false;
+  const role=S.currentUser.role;
+  if(role==='super-admin')return true;
+  if(action==='manage_users')return false;
+  if(action==='edit'||action==='delete')return role==='admin';
+  if(action==='view')return true;
+  return false;
+}
+
+function refreshUIBasedOnRole(){
+  const isLogged=!!S.currentUser;
+  const el=id=>document.getElementById(id);
+  if(el('logoutBtn'))el('logoutBtn').style.display=isLogged?'':'none';
+  document.querySelectorAll('.edit-only').forEach(e=>e.style.display=hasAccess('edit')?'':'none');
+  if(el('nav-users'))el('nav-users').style.display=hasAccess('manage_users')?'':'none';
+  const roleLabels={'super-admin':'👑 مشرف عام','admin':'🔧 مدير','viewer':'👁 مشاهد'};
+  if(isLogged&&S.currentUser){
+    if(el('sbAvatar'))el('sbAvatar').textContent=(S.currentUser.username||'?').charAt(0).toUpperCase();
+    if(el('sbUserName'))el('sbUserName').textContent=S.currentUser.username||'';
+    if(el('sbUserRole'))el('sbUserRole').textContent=roleLabels[S.currentUser.role]||S.currentUser.role;
+  }else{
+    if(el('sbAvatar'))el('sbAvatar').textContent='?';
+    if(el('sbUserName'))el('sbUserName').textContent='غير مسجل';
+    if(el('sbUserRole'))el('sbUserRole').textContent='—';
+  }
+  if(S.currentTab==='users'&&!hasAccess('manage_users'))switchTab('records');
+}
+
+/* =====================================================================
+   LOGIN / LOGOUT
+   ===================================================================== */
+function showLogin(){
+  const ov=document.getElementById('loginOverlay');if(ov)ov.style.display='flex';
+  const u=document.getElementById('loginUser');const p=document.getElementById('loginPass');
+  const er=document.getElementById('loginError');
+  if(u)u.value='';if(p)p.value='';if(er)er.style.display='none';
+  setTimeout(()=>{if(u)u.focus()},100);
+}
+function hideLogin(){const ov=document.getElementById('loginOverlay');if(ov)ov.style.display='none'}
+
+async function doLogin(){
+  const uVal=(document.getElementById('loginUser').value||'').trim();
+  const pVal=document.getElementById('loginPass').value||'';
+  const errEl=document.getElementById('loginError');
+  if(!uVal||!pVal){if(errEl)errEl.style.display='block';return}
+  const user=await queryOne('SELECT * FROM users WHERE username=?',[uVal]);
+  if(!user){if(errEl)errEl.style.display='block';return}
+  const ok=await verifyPassword(pVal,user.hash,user.salt);
+  if(ok){
+    S.currentUser={username:user.username,role:user.role};
+    hideLogin();refresh();
+    toast('✅ مرحباً، '+user.username,'success');
+  }else{if(errEl)errEl.style.display='block'}
+}
+
+function logout(){S.currentUser=null;showLogin();refresh();toast('👋 تم تسجيل الخروج','info')}
+
+/* =====================================================================
+   SUPER-ADMIN FIRST RUN
+   ===================================================================== */
+function createSuperAdminPrompt(){
+  return new Promise(resolve=>{
+    const existing=document.getElementById('saModal');if(existing)existing.remove();
+    const div=document.createElement('div');div.id='saModal';
+    div.innerHTML=`<div class="ov open" style="z-index:11000"><div class="modal" style="max-width:400px">
+      <div class="mhdr"><div class="mhdr-l"><div class="mico gold">👑</div><div><div class="mtitle">إنشاء المشرف العام</div><div class="msub">الإعداد الأولي</div></div></div></div>
+      <div class="mbody">
+        <div class="field"><label class="flbl">اسم المستخدم <span class="req">*</span></label><input class="finp" id="saUser" placeholder="admin" autocomplete="username"></div>
+        <div class="field"><label class="flbl">كلمة المرور <span class="req">*</span></label><input class="finp" type="password" id="saPass"></div>
+        <div class="field"><label class="flbl">تأكيد كلمة المرور <span class="req">*</span></label><input class="finp" type="password" id="saPass2"></div>
+        <div id="saError" style="color:var(--red);font-size:12px;display:none;padding:7px 10px;background:var(--reddim);border-radius:var(--r1)"></div>
+      </div>
+      <div class="mfoot"><button class="btn btn-primary" id="saSubmit">إنشاء الحساب</button></div>
+    </div></div>`;
+    document.body.appendChild(div);
+    setTimeout(()=>{document.getElementById('saUser')?.focus()},100);
+    document.getElementById('saSubmit').addEventListener('click',async()=>{
+      const u=(document.getElementById('saUser').value||'').trim();
+      const p=document.getElementById('saPass').value||'';
+      const p2=document.getElementById('saPass2').value||'';
+      const errEl=document.getElementById('saError');
+      if(!u||!p){errEl.textContent='يرجى ملء جميع الحقول';errEl.style.display='block';return}
+      if(p!==p2){errEl.textContent='كلمتا المرور غير متطابقتين';errEl.style.display='block';return}
+      if(p.length<4){errEl.textContent='كلمة المرور 4 أحرف على الأقل';errEl.style.display='block';return}
+      const{hash,salt}=await hashPassword(p);
+      await exec('INSERT INTO users(username,hash,salt,role) VALUES(?,?,?,?)',[u,hash,salt,'super-admin']);
+      if(DB._sqljs)scheduleSqlJsSave();
+      S.currentUser={username:u,role:'super-admin'};
+      div.remove();refresh();
+      toast('👑 تم إنشاء المشرف العام','success');
+      resolve();
+    });
+  });
+}
+
+/* =====================================================================
+   RECORDS — CRUD
+   ===================================================================== */
+async function loadRecords(){
+  const recs=await query('SELECT r.*,(SELECT COUNT(*) FROM files f WHERE f.record_id=r.id) as file_count FROM records r ORDER BY r.id DESC');
+  // attach parsed tags
+  return recs.map(r=>({...r,tags_arr:safeParseJSON(r.tags,[]),files:null,_fc:r.file_count||0}));
+}
+
+function safeParseJSON(s,def){try{return JSON.parse(s)||def}catch{return def}}
+
+async function loadFilesForRecord(recordId){
+  return query('SELECT id,name,type,size,data FROM files WHERE record_id=? ORDER BY id',[recordId]);
+}
+
+/* ── FILTER & SORT ── */
+let allRecs=[];
+
+async function doFilter(){
+  if(!DB)return;
+  // Build SQL WHERE
+  const q=(document.getElementById('srchQ')?.value||'').trim();
+  const t=document.getElementById('fType')?.value||'';
+  const st=document.getElementById('fStatus')?.value||'';
+  const f=document.getElementById('fFiles')?.value||'';
+  const fav=document.getElementById('fFav')?.value||'';
+
+  let where='WHERE r.id IS NOT NULL';
+  const params=[];
+
+  if(q){
+    where+=' AND (r.name LIKE ? OR r.code LIKE ? OR r.notes LIKE ? OR r.price_list_name LIKE ? OR r.tags LIKE ?)';
+    const lk='%'+q+'%';params.push(lk,lk,lk,lk,lk);
+  }
+  if(t){where+=' AND r.type=?';params.push(t)}
+  if(st){where+=' AND r.status=?';params.push(st)}
+  if(f==='has')  {where+=' AND (SELECT COUNT(*) FROM files ff WHERE ff.record_id=r.id)>0'}
+  if(f==='none') {where+=' AND (SELECT COUNT(*) FROM files ff WHERE ff.record_id=r.id)=0'}
+  if(fav==='fav'){where+=' AND r.is_favorite=1'}
+
+  const safeCols={'id':'r.id','code':'r.code','name':'r.name','type':'r.type','price_list_name':'r.price_list_name',
+    'activation_date':'r.activation_date','expiry_date':'r.expiry_date','status':'r.status'};
+  const orderCol=safeCols[S.sc]||'r.id';
+  const orderDir=S.sd==='asc'?'ASC':'DESC';
+
+  const sql=`SELECT r.*,(SELECT COUNT(*) FROM files f WHERE f.record_id=r.id) as file_count
+    FROM records r ${where} ORDER BY ${orderCol} ${orderDir}`;
+
+  S.fil=await query(sql,params);
+  S.fil=S.fil.map(r=>({...r,tags_arr:safeParseJSON(r.tags,[]),_fc:r.file_count||0}));
+  S.page=1;S.sel.clear();updSel();
+}
+
+/* ── STATS ── */
+async function updateStats(){
+  const total=await queryOne('SELECT COUNT(*) as c FROM records');
+  const doc=await queryOne("SELECT COUNT(*) as c FROM records WHERE type='doctor'");
+  const cen=await queryOne("SELECT COUNT(*) as c FROM records WHERE type='center'");
+  const hos=await queryOne("SELECT COUNT(*) as c FROM records WHERE type='hospital'");
+  const trash=await queryOne('SELECT COUNT(*) as c FROM trash');
+  const setEl=(id,v)=>{const e=document.getElementById(id);if(e)e.textContent=v};
+  setEl('s-total',total?.c||0);setEl('s-doc',doc?.c||0);
+  setEl('s-cen',cen?.c||0);setEl('s-hos',hos?.c||0);
+  const badge=document.getElementById('nav-badge-records');if(badge)badge.textContent=total?.c||0;
+  const tb=document.getElementById('nav-badge-trash');
+  if(tb){const tc=trash?.c||0;tb.textContent=tc;tb.style.display=tc?'':'none'}
+  updateDBBar();
+}
+
+/* ── TABLE RENDER ── */
+const TM={doctor:['🩺 طبيب','doctor'],center:['🏢 مركز','center'],hospital:['🏥 مستشفى','hospital'],other:['📋 أخرى','other']};
+const SM={active:['✅ نشط','active'],inactive:['⛔ غير نشط','inactive'],pending:['⏳ انتظار','pending']};
+
+function buildRow(r){
+  const[tl,tc]=TM[r.type]||['📋','other'];
+  const[sl,sc]=SM[r.status]||[r.status,'other'];
+  const fc=r._fc||0;
+  const sel=S.sel.has(r.id);
+  const canEdit=hasAccess('edit');const canDel=hasAccess('delete');
+  const expired=r.expiry_date&&new Date(r.expiry_date)<new Date();
+  return`<tr class="${sel?'sel':''}" draggable="${canEdit}" data-id="${r.id}" onclick="rowClk(event,${r.id})" oncontextmenu="showCtx(event,${r.id})">
+    <td onclick="event.stopPropagation()"><input type="checkbox" ${sel?'checked':''} onchange="togRow(${r.id},this)" style="accent-color:var(--gold)"></td>
+    <td class="cd">${r.id}</td>
+    <td class="nm">${esc(r.code||'')}</td>
+    <td class="nm">${r.is_favorite?'⭐ ':''}${esc(r.name)}</td>
+    <td><span class="badge ${tc}">${tl}</span></td>
+    <td class="pl">${esc(r.price_list_name||'—')}</td>
+    <td>${fc?`<span class="fcnt" onclick="event.stopPropagation();openViewer(${r.id})">📎 ${fc}</span>`:'<span class="fcnt emp">—</span>'}</td>
+    <td><span class="dbadge">${fmtDate(r.activation_date)}</span></td>
+    <td><span class="dbadge">${fmtDate(r.expiry_date)}</span>${expired?' ⚠️':''}</td>
+    <td><span class="badge ${sc}">${sl}</span></td>
+    <td class="nt" title="${esc(r.notes||'')}">${esc(r.notes||'—')}</td>
+    <td class="ac"><div class="ract">
+      <button class="ab v" title="عرض" onclick="event.stopPropagation();openDet(${r.id})">👁</button>
+      ${canEdit?`<button class="ab e" title="تعديل" onclick="event.stopPropagation();openEdit(${r.id})">✏️</button>`:''}
+      <button class="ab fav" title="تفضيل" onclick="event.stopPropagation();toggleFav(${r.id})">⭐</button>
+      ${canDel?`<button class="ab d" title="حذف" onclick="event.stopPropagation();openDel(${r.id})">🗑</button>`:''}
+    </div></td>
+  </tr>`;
+}
+
+function renderTbl(){
+  const tb=document.getElementById('tBody');
+  const em=document.getElementById('emptyEl');
+  const tbl=document.getElementById('mainTbl');
+  if(!tb||!em||!tbl)return;
+  const st=(S.page-1)*S.ps,pg=S.fil.slice(st,st+S.ps);
+  if(!pg.length){tb.innerHTML='';tbl.style.display='none';em.style.display='block';
+    const cap=document.getElementById('tCaption');if(cap)cap.textContent='لا توجد سجلات';return}
+  tbl.style.display='table';em.style.display='none';
+  tb.innerHTML=pg.map(buildRow).join('');
+  const tot=S.fil.length;
+  const cap=document.getElementById('tCaption');
+  if(cap)cap.textContent=`السجلات (${tot})`;
+  if(hasAccess('edit'))enableDragDrop();
+}
+
+function enableDragDrop(){
+  const tbody=document.getElementById('tBody');if(!tbody)return;
+  let dragged=null;
+  tbody.querySelectorAll('tr[draggable="true"]').forEach(row=>{
+    row.addEventListener('dragstart',e=>{dragged=row;row.classList.add('dragging');e.dataTransfer.effectAllowed='move'});
+    row.addEventListener('dragend',()=>row.classList.remove('dragging'));
+    row.addEventListener('dragover',e=>{e.preventDefault();e.dataTransfer.dropEffect='move'});
+    row.addEventListener('drop',async e=>{
+      e.preventDefault();
+      if(dragged&&dragged!==row){
+        // Visual reorder only (SQLite doesn't have a natural order column unless we add one)
+        const fromId=parseInt(dragged.dataset.id,10);
+        const toId=parseInt(row.dataset.id,10);
+        const fromIdx=S.fil.findIndex(r=>r.id===fromId);
+        const toIdx=S.fil.findIndex(r=>r.id===toId);
+        if(fromIdx!==-1&&toIdx!==-1){
+          const[m]=S.fil.splice(fromIdx,1);S.fil.splice(toIdx,0,m);
+          await addAudit('reorder',fromId,'إعادة ترتيب السجل');renderTbl();
+        }
+      }
+    });
+  });
+}
+
+/* ── PAGINATION ── */
+function renderPgn(){
+  const tot=S.fil.length,pgs=Math.ceil(tot/S.ps)||1,cur=S.page;
+  const info=document.getElementById('pgnInfo');const btns=document.getElementById('pgnBtns');
+  if(!info||!btns)return;
+  if(!tot){info.textContent='';btns.innerHTML='';return}
+  info.innerHTML=`<span>${(cur-1)*S.ps+1}–${Math.min(cur*S.ps,tot)}</span> من <span>${tot}</span>`;
+  if(pgs<=1){btns.innerHTML='';return}
+  let h=`<button class="pb" onclick="goP(${cur-1})" ${cur===1?'disabled':''}>‹</button>`;
+  for(let i=1;i<=pgs;i++){
+    if(pgs>7&&Math.abs(i-cur)>2&&i!==1&&i!==pgs){if(i===2||i===pgs-1)h+=`<button class="pb" disabled>…</button>`;continue}
+    h+=`<button class="pb ${i===cur?'act':''}" onclick="goP(${i})">${i}</button>`;
+  }
+  h+=`<button class="pb" onclick="goP(${cur+1})" ${cur===pgs?'disabled':''}>›</button>`;
+  btns.innerHTML=h;
+}
+function goP(p){const pgs=Math.ceil(S.fil.length/S.ps)||1;if(p<1||p>pgs)return;S.page=p;renderTbl();renderPgn()}
+
+/* ── SORT ── */
+function sortBy(c){
+  S.sd=S.sc===c?(S.sd==='asc'?'desc':'asc'):'asc';S.sc=c;
+  document.querySelectorAll('th[data-col]').forEach(th=>{
+    th.classList.remove('sorted','asc','desc');
+    if(th.dataset.col===c)th.classList.add('sorted',S.sd);
+  });
+  refresh();
+}
+function clearF(){
+  ['srchQ','fType','fStatus','fFiles','fFav'].forEach(id=>{const el=document.getElementById(id);if(el)el.value=''});
+  refresh();
+}
+
+/* ── SELECTION ── */
+function rowClk(e,id){
+  if(e.target.type==='checkbox')return;if(e.target.closest('.ract'))return;if(e.target.closest('.fcnt'))return;openDet(id);
+}
+function togRow(id,cb){cb.checked?S.sel.add(id):S.sel.delete(id);const r=document.querySelector(`tr[data-id="${id}"]`);if(r)r.classList.toggle('sel',cb.checked);updSel()}
+function selAll(){
+  const st=(S.page-1)*S.ps,pg=S.fil.slice(st,st+S.ps);
+  const allSel=pg.every(r=>S.sel.has(r.id));
+  pg.forEach(r=>allSel?S.sel.delete(r.id):S.sel.add(r.id));
+  const chk=document.getElementById('chkAll');if(chk)chk.checked=!allSel;
+  renderTbl();renderPgn();updSel();
+}
+function updSel(){
+  const n=S.sel.size;
+  const si=document.getElementById('selInfo');const sc=document.getElementById('selCnt');
+  if(si)si.style.display=n?'':'none';if(sc)sc.textContent=n;
+}
+async function delSelected(){
+  if(!hasAccess('delete'))return toast('⛔ غير مصرح','error');
+  if(!S.sel.size)return;
+  if(!confirm(`نقل ${S.sel.size} سجل إلى سلة المهملات؟`))return;
+  for(const id of S.sel){
+    const r=await queryOne('SELECT * FROM records WHERE id=?',[id]);
+    if(r){
+      const files=await loadFilesForRecord(id);
+      const data=JSON.stringify({...r,files});
+      await exec('INSERT INTO trash(original_id,data) VALUES(?,?)',[id,data]);
+      await exec('DELETE FROM records WHERE id=?',[id]);
+      await addAudit('trash',id,`نقل "${r.name}" لسلة المهملات`);
+    }
+  }
+  S.sel.clear();
+  if(DB._sqljs)scheduleSqlJsSave();
+  refresh();toast(`🗑 تم نقل ${S.sel.size||'المحدد'} لسلة المهملات`,'success');
+}
+
+/* =====================================================================
+   ADD / EDIT RECORD
+   ===================================================================== */
+let pFiles=[];
+
+function openAddModal(){
+  if(!hasAccess('edit'))return toast('⛔ غير مصرح','error');
+  S.editId=null;pFiles=[];clrForm();
+  const d=document.getElementById('fDate');if(d)d.value=today();
+  renderPendingFiles();
+  setModalHeader('➕','إضافة سجل جديد','بيانات الطبيب أو المركز');
+  openModal('aeOv');
+  setTimeout(()=>document.getElementById('fCode')?.focus(),100);
+}
+
+async function openEdit(id){
+  if(!hasAccess('edit'))return toast('⛔ غير مصرح','error');
+  const r=await queryOne('SELECT * FROM records WHERE id=?',[id]);
+  if(!r)return;
+  const files=await loadFilesForRecord(id);
+  S.editId=id;
+  pFiles=files.map(f=>({...f}));
+  clrForm();
+  const set=(el,val)=>{const e=document.getElementById(el);if(e)e.value=val||''};
+  set('fType2',r.type);set('fCode',r.code);set('fName',r.name);
+  set('fPriceList',r.price_list_name);set('fDate',r.activation_date);
+  set('fExpiry',r.expiry_date);set('fPhone',r.phone);set('fEmail',r.email);
+  set('fAddress',r.address);set('fNotes',r.notes);set('fStat',r.status);
+  set('fFav2',r.is_favorite?'1':'0');
+  const tags=safeParseJSON(r.tags,[]);
+  set('fTags',tags.join(', '));
+  renderPendingFiles();
+  setModalHeader('✏️','تعديل سجل',esc(r.name));
+  openModal('aeOv');
+}
+
+function setModalHeader(ico,title,sub){
+  const i=document.getElementById('mIco');const t=document.getElementById('mTitle');const s=document.getElementById('mSub');
+  if(i)i.textContent=ico;if(t)t.textContent=title;if(s)s.textContent=sub;
+}
+
+function clrForm(){
+  ['fCode','fName','fPhone','fEmail','fAddress','fPriceList','fTags','fNotes'].forEach(id=>{const e=document.getElementById(id);if(e)e.value=''});
+  const t=document.getElementById('fType2');const s=document.getElementById('fStat');const fv=document.getElementById('fFav2');
+  if(t)t.value='doctor';if(s)s.value='active';if(fv)fv.value='0';
+  ['fCode','fName'].forEach(id=>{const e=document.getElementById(id);if(e)e.classList.remove('err')});
+  ['eCode','eName'].forEach(id=>{const e=document.getElementById(id);if(e)e.classList.remove('show')});
+}
+
+async function saveRec(){
+  if(!hasAccess('edit'))return toast('⛔ غير مصرح','error');
+  const code=(document.getElementById('fCode')?.value||'').trim();
+  const name=(document.getElementById('fName')?.value||'').trim();
+  let ok=true;
+  const showErr=(inp,err)=>{document.getElementById(inp)?.classList.add('err');document.getElementById(err)?.classList.add('show');ok=false};
+  const hideErr=(inp,err)=>{document.getElementById(inp)?.classList.remove('err');document.getElementById(err)?.classList.remove('show')};
+  code?hideErr('fCode','eCode'):showErr('fCode','eCode');
+  name?hideErr('fName','eName'):showErr('fName','eName');
+  if(!ok)return;
+  // Check duplicate code
+  const dup=await queryOne('SELECT id FROM records WHERE code=? AND id!=?',[code,S.editId||0]);
+  if(dup){toast(`❌ الكود "${code}" مستخدم مسبقاً`,'error');document.getElementById('fCode')?.classList.add('err');return}
+
+  const tags=JSON.stringify((document.getElementById('fTags')?.value||'').split(',').map(t=>t.trim()).filter(Boolean));
+  const isFav=document.getElementById('fFav2')?.value==='1'?1:0;
+  const vals={code,name,type:document.getElementById('fType2')?.value||'other',
+    price_list_name:(document.getElementById('fPriceList')?.value||'').trim(),
+    activation_date:document.getElementById('fDate')?.value||'',
+    expiry_date:document.getElementById('fExpiry')?.value||'',
+    phone:(document.getElementById('fPhone')?.value||'').trim(),
+    email:(document.getElementById('fEmail')?.value||'').trim(),
+    address:(document.getElementById('fAddress')?.value||'').trim(),
+    tags,status:document.getElementById('fStat')?.value||'active',
+    is_favorite:isFav,notes:(document.getElementById('fNotes')?.value||'').trim()};
+
+  try{
+    if(S.editId!==null){
+      await exec(`UPDATE records SET code=?,name=?,type=?,price_list_name=?,activation_date=?,expiry_date=?,phone=?,email=?,address=?,tags=?,status=?,is_favorite=?,notes=?,updated_at=datetime('now') WHERE id=?`,
+        [vals.code,vals.name,vals.type,vals.price_list_name,vals.activation_date,vals.expiry_date,
+         vals.phone,vals.email,vals.address,vals.tags,vals.status,vals.is_favorite,vals.notes,S.editId]);
+      // Update files: delete old, insert new
+      await exec('DELETE FROM files WHERE record_id=?',[S.editId]);
+      for(const f of pFiles){
+        await exec('INSERT INTO files(record_id,name,type,size,data) VALUES(?,?,?,?,?)',[S.editId,f.name,f.type||'',f.size||0,f.data]);
+      }
+      await addAudit('edit',S.editId,`تعديل "${name}"`);
+      toast('✅ تم التعديل','success');
+    }else{
+      await exec(`INSERT INTO records(code,name,type,price_list_name,activation_date,expiry_date,phone,email,address,tags,status,is_favorite,notes) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        [vals.code,vals.name,vals.type,vals.price_list_name,vals.activation_date,vals.expiry_date,
+         vals.phone,vals.email,vals.address,vals.tags,vals.status,vals.is_favorite,vals.notes]);
+      const newId=await getLastInsertId();
+      for(const f of pFiles){
+        await exec('INSERT INTO files(record_id,name,type,size,data) VALUES(?,?,?,?,?)',[newId,f.name,f.type||'',f.size||0,f.data]);
+      }
+      await addAudit('add',newId,`إضافة "${name}"`);
+      toast('✅ تم الإضافة','success');
+    }
+    if(DB._sqljs)scheduleSqlJsSave();
+    closeModal('aeOv');refresh();
+  }catch(e){toast('❌ خطأ: '+e.message,'error')}
+}
+
+/* =====================================================================
+   DELETE / TRASH
+   ===================================================================== */
+async function openDel(id){
+  if(!hasAccess('delete'))return toast('⛔ غير مصرح','error');
+  const r=await queryOne('SELECT name FROM records WHERE id=?',[id]);
+  if(!r)return;S.delId=id;
+  const el=document.getElementById('delName');if(el)el.textContent=r.name;
+  openModal('delOv');
+}
+
+async function confirmDel(){
+  if(!hasAccess('delete'))return;
+  const r=await queryOne('SELECT * FROM records WHERE id=?',[S.delId]);
+  if(r){
+    const files=await loadFilesForRecord(S.delId);
+    const data=JSON.stringify({...r,files});
+    await exec('INSERT INTO trash(original_id,data) VALUES(?,?)',[S.delId,data]);
+    await exec('DELETE FROM records WHERE id=?',[S.delId]);
+    await addAudit('trash',S.delId,`نقل "${r.name}" لسلة المهملات`);
+    if(DB._sqljs)scheduleSqlJsSave();
+    toast('🗑 تم النقل لسلة المهملات','success');
+  }
+  closeModal('delOv');refresh();S.delId=null;
+}
+
+async function restoreFromTrash(tid){
+  if(!hasAccess('edit'))return toast('⛔ غير مصرح','error');
+  const row=await queryOne('SELECT * FROM trash WHERE id=?',[tid]);
+  if(!row)return;
+  const data=safeParseJSON(row.data,null);
+  if(!data){toast('❌ بيانات تالفة','error');return}
+  try{
+    const files=data.files||[];delete data.files;delete data.id;
+    const cols=Object.keys(data).join(',');
+    const placeholders=Object.keys(data).map(()=>'?').join(',');
+    await exec(`INSERT OR IGNORE INTO records(${cols}) VALUES(${placeholders})`,Object.values(data));
+    const newId=await getLastInsertId()||row.original_id;
+    for(const f of files){
+      await exec('INSERT INTO files(record_id,name,type,size,data) VALUES(?,?,?,?,?)',[newId,f.name,f.type||'',f.size||0,f.data]);
+    }
+    await exec('DELETE FROM trash WHERE id=?',[tid]);
+    await addAudit('restore',newId,`استعادة "${data.name||''}" من سلة المهملات`);
+    if(DB._sqljs)scheduleSqlJsSave();
+    refresh();toast('♻️ تم الاستعادة','success');
+  }catch(e){toast('❌ فشل الاستعادة: '+e.message,'error')}
+}
+
+async function deleteForever(tid){
+  if(!hasAccess('delete'))return toast('⛔ غير مصرح','error');
+  const row=await queryOne('SELECT * FROM trash WHERE id=?',[tid]);
+  if(!row)return;
+  if(!confirm('حذف نهائي؟ لا يمكن التراجع.'))return;
+  await exec('DELETE FROM trash WHERE id=?',[tid]);
+  await addAudit('delete_forever',row.original_id,'حذف نهائي');
+  if(DB._sqljs)scheduleSqlJsSave();
+  renderTrash();updateStats();toast('❌ تم الحذف النهائي','info');
+}
+
+async function emptyTrash(){
+  if(!hasAccess('delete'))return toast('⛔ غير مصرح','error');
+  const cnt=await queryOne('SELECT COUNT(*) as c FROM trash');
+  if(!cnt?.c)return;
+  if(!confirm(`حذف جميع العناصر (${cnt.c}) نهائياً؟`))return;
+  await exec('DELETE FROM trash');
+  await addAudit('empty_trash',null,'إفراغ سلة المهملات');
+  if(DB._sqljs)scheduleSqlJsSave();
+  renderTrash();updateStats();toast('🗑 تم إفراغ سلة المهملات','success');
+}
+
+async function toggleFav(id){
+  const r=await queryOne('SELECT is_favorite,name FROM records WHERE id=?',[id]);
+  if(!r)return;
+  const newVal=r.is_favorite?0:1;
+  await exec('UPDATE records SET is_favorite=? WHERE id=?',[newVal,id]);
+  await addAudit(newVal?'fav_add':'fav_remove',id,newVal?`إضافة "${r.name}" للمفضلة`:`إزالة "${r.name}" من المفضلة`);
+  if(DB._sqljs)scheduleSqlJsSave();
+  refresh();
+}
+
+/* =====================================================================
+   RENDER TRASH / AUDIT
+   ===================================================================== */
+async function renderTrash(){
+  const c=document.getElementById('trashContent');if(!c)return;
+  const rows=await query('SELECT * FROM trash ORDER BY trashed_at DESC');
+  if(!rows.length){c.innerHTML='<div class="empty"><span class="ei">🗑️</span><h3>سلة المهملات فارغة</h3></div>';return}
+  let h='';
+  if(hasAccess('delete'))h+=`<div style="margin-bottom:10px"><button class="btn btn-danger btn-sm" onclick="emptyTrash()">🗑️ إفراغ الكل (${rows.length})</button></div>`;
+  h+='<div class="tab-inner-list">';
+  h+=rows.map(row=>{
+    const data=safeParseJSON(row.data,{});
+    return`<div class="trash-item">
+      <div><div class="trash-item-name">${esc(data.name||'؟')} ${data.code?`(${esc(data.code)})`:''}</div>
+      <div class="trash-item-meta">حُذف في ${fmtDate(row.trashed_at)}</div></div>
+      <div class="trash-item-acts">
+        ${hasAccess('edit')?`<button class="btn btn-ghost btn-sm" onclick="restoreFromTrash(${row.id})">♻️ استعادة</button>`:''}
+        ${hasAccess('delete')?`<button class="btn btn-danger btn-sm" onclick="deleteForever(${row.id})">❌ حذف نهائي</button>`:''}
+      </div>
+    </div>`;
+  }).join('');
+  h+='</div>';c.innerHTML=h;
+}
+
+async function renderAudit(){
+  const c=document.getElementById('auditContent');if(!c)return;
+  const rows=await query('SELECT * FROM audit_log ORDER BY created_at DESC LIMIT 100');
+  if(!rows.length){c.innerHTML='<div class="empty"><span class="ei">📝</span><h3>لا توجد أحداث</h3></div>';return}
+  let h='<div class="tab-inner-list">';
+  h+=rows.map(e=>{
+    const ts=new Date(e.created_at);
+    return`<div class="audit-item"><div>
+      <div class="audit-action">${esc(e.description)}</div>
+      <div class="audit-meta">${ts.toLocaleDateString('ar-EG')} ${ts.toLocaleTimeString('ar-EG')} · ${esc(e.username||'نظام')}${e.record_id?` · سجل #${e.record_id}`:''}</div>
+    </div></div>`;
+  }).join('');
+  h+='</div>';c.innerHTML=h;
+}
+
+/* =====================================================================
+   USERS TAB
+   ===================================================================== */
+async function renderUsersTab(){
+  if(!hasAccess('manage_users'))return;
+  const c=document.getElementById('usersContent');if(!c)return;
+  const users=await query('SELECT id,username,role,created_at FROM users ORDER BY id');
+  const roleLabel=r=>({'super-admin':'👑 مشرف عام','admin':'🔧 مدير','viewer':'👁 مشاهد'}[r]||r);
+  let h=`<div style="margin-bottom:12px"><button class="btn btn-primary btn-sm" onclick="openAddUserModal()">＋ إضافة مستخدم</button></div>
+  <div style="overflow-x:auto"><table><thead><tr><th>اسم المستخدم</th><th>الصلاحية</th><th>تاريخ الإنشاء</th><th>إجراءات</th></tr></thead><tbody>`;
+  users.forEach(u=>{
+    h+=`<tr><td class="nm">${esc(u.username)}</td><td>${roleLabel(u.role)}</td>
+    <td><span class="dbadge">${fmtDate(u.created_at)}</span></td>
+    <td>${u.role!=='super-admin'?`<div class="ract"><button class="ab e" onclick="editUser(${u.id},'${esc(u.username)}','${u.role}')">✏️</button><button class="ab d" onclick="deleteUser(${u.id},'${esc(u.username)}')">🗑</button></div>`:'<span style="font-size:11px;color:var(--t3)">محمي</span>'}</td></tr>`;
+  });
+  h+=`</tbody></table></div>`;c.innerHTML=h;
+}
+
+function openAddUserModal(){
+  if(!hasAccess('manage_users'))return;
+  const ex=document.getElementById('userModal');if(ex)ex.remove();
+  const m=document.createElement('div');m.id='userModal';
+  m.innerHTML=`<div class="ov open" style="z-index:9500"><div class="modal" style="max-width:400px">
+    <div class="mhdr"><div class="mhdr-l"><div class="mico gold">➕</div><div><div class="mtitle">إضافة مستخدم</div></div></div>
+    <button class="mclose" onclick="document.getElementById('userModal').remove()">✕</button></div>
+    <div class="mbody">
+      <div class="field"><label class="flbl">اسم المستخدم <span class="req">*</span></label><input class="finp" id="newUsername" autocomplete="off"></div>
+      <div class="field"><label class="flbl">كلمة المرور <span class="req">*</span></label><input class="finp" type="password" id="newPass"></div>
+      <div class="field"><label class="flbl">الصلاحية</label><select class="finp" id="newRole"><option value="admin">🔧 مدير</option><option value="viewer">👁 مشاهد</option></select></div>
+      <div id="addUserErr" style="color:var(--red);font-size:12px;display:none"></div>
+    </div>
+    <div class="mfoot"><button class="btn btn-primary" id="saveNewUser">حفظ</button><button class="btn btn-ghost" onclick="document.getElementById('userModal').remove()">إلغاء</button></div>
+  </div></div>`;
+  document.body.appendChild(m);
+  setTimeout(()=>document.getElementById('newUsername')?.focus(),100);
+  document.getElementById('saveNewUser').addEventListener('click',async()=>{
+    const u=(document.getElementById('newUsername').value||'').trim();
+    const p=document.getElementById('newPass').value||'';
+    const r=document.getElementById('newRole').value;
+    const errEl=document.getElementById('addUserErr');
+    if(!u||!p){errEl.textContent='يرجى ملء جميع الحقول';errEl.style.display='block';return}
+    if(p.length<4){errEl.textContent='كلمة المرور 4 أحرف على الأقل';errEl.style.display='block';return}
+    const existing=await queryOne('SELECT id FROM users WHERE username=?',[u]);
+    if(existing){errEl.textContent='اسم المستخدم موجود مسبقاً';errEl.style.display='block';return}
+    const{hash,salt}=await hashPassword(p);
+    await exec('INSERT INTO users(username,hash,salt,role) VALUES(?,?,?,?)',[u,hash,salt,r]);
+    await addAudit('add_user',null,`إضافة مستخدم "${u}"`);
+    if(DB._sqljs)scheduleSqlJsSave();
+    document.getElementById('userModal').remove();
+    renderUsersTab();toast('✅ تم إضافة المستخدم','success');
+  });
+}
+
+function editUser(id,username,currentRole){
+  if(!hasAccess('manage_users'))return;
+  const ex=document.getElementById('editUserModal');if(ex)ex.remove();
+  const m=document.createElement('div');m.id='editUserModal';
+  m.innerHTML=`<div class="ov open" style="z-index:9500"><div class="modal" style="max-width:400px">
+    <div class="mhdr"><div class="mhdr-l"><div class="mico gold">✏️</div><div><div class="mtitle">تعديل: ${esc(username)}</div></div></div>
+    <button class="mclose" onclick="document.getElementById('editUserModal').remove()">✕</button></div>
+    <div class="mbody">
+      <div class="field"><label class="flbl">كلمة مرور جديدة (اتركها فارغة للإبقاء)</label><input class="finp" type="password" id="editPass"></div>
+      <div class="field"><label class="flbl">الصلاحية</label><select class="finp" id="editRole">
+        <option value="admin" ${currentRole==='admin'?'selected':''}>🔧 مدير</option>
+        <option value="viewer" ${currentRole==='viewer'?'selected':''}>👁 مشاهد</option>
+      </select></div>
+    </div>
+    <div class="mfoot"><button class="btn btn-primary" id="saveEditUser">حفظ</button><button class="btn btn-ghost" onclick="document.getElementById('editUserModal').remove()">إلغاء</button></div>
+  </div></div>`;
+  document.body.appendChild(m);
+  document.getElementById('saveEditUser').addEventListener('click',async()=>{
+    const p=document.getElementById('editPass').value||'';
+    const r=document.getElementById('editRole').value;
+    if(p){if(p.length<4){toast('كلمة المرور 4 أحرف على الأقل','error');return}
+      const{hash,salt}=await hashPassword(p);
+      await exec('UPDATE users SET hash=?,salt=?,role=? WHERE id=?',[hash,salt,r,id]);
+    }else{await exec('UPDATE users SET role=? WHERE id=?',[r,id])}
+    await addAudit('edit_user',null,`تعديل مستخدم "${username}"`);
+    if(DB._sqljs)scheduleSqlJsSave();
+    document.getElementById('editUserModal').remove();renderUsersTab();toast('✅ تم التعديل','success');
+  });
+}
+
+async function deleteUser(id,username){
+  if(!hasAccess('manage_users'))return;
+  if(!confirm(`حذف المستخدم "${username}"؟`))return;
+  await exec('DELETE FROM users WHERE id=?',[id]);
+  await addAudit('delete_user',null,`حذف مستخدم "${username}"`);
+  if(DB._sqljs)scheduleSqlJsSave();
+  renderUsersTab();toast('🗑️ تم الحذف','success');
+}
+
+/* =====================================================================
+   FILE UPLOAD
+   ===================================================================== */
+function triggerFileInput(){document.getElementById('globalFileInput').click()}
+function handleFileSelect(e){readFiles(Array.from(e.target.files));e.target.value=''}
+function fileInfo(f){
+  const ext=(f.name||'').split('.').pop().toLowerCase();const type=f.type||'';
+  if(ext==='pdf')return{icon:'📄',cls:'pdf',label:'PDF',view:'pdf'};
+  if(['doc','docx'].includes(ext))return{icon:'📝',cls:'word',label:'Word',view:'word'};
+  if(['xls','xlsx'].includes(ext))return{icon:'📊',cls:'xl',label:'Excel',view:'excel'};
+  if(['jpg','jpeg','png','bmp','gif','webp','tiff','svg'].includes(ext)||type.startsWith('image/'))return{icon:'🖼️',cls:'img',label:'صورة',view:'img'};
+  return{icon:'📎',cls:'oth',label:'ملف',view:'dl'};
+}
+function readFiles(files){
+  files.forEach(file=>{
+    const fi=fileInfo(file);
+    if(fi.view==='img'&&file.size>200*1024){
+      const r=new FileReader();r.onload=ev=>{
+        const img=new Image();img.onload=()=>{
+          const c=document.createElement('canvas');
+          const mw=1200;if(img.width>mw){c.width=mw;c.height=Math.round(img.height*(mw/img.width))}else{c.width=img.width;c.height=img.height}
+          c.getContext('2d').drawImage(img,0,0,c.width,c.height);
+          const data=c.toDataURL('image/jpeg',.72);
+          pFiles.push({name:file.name,type:'image/jpeg',size:Math.round(data.length*.75),data});renderPendingFiles();
+        };img.src=ev.target.result;
+      };r.readAsDataURL(file);
+    }else{
+      const r=new FileReader();r.onload=ev=>{pFiles.push({name:file.name,type:file.type,size:file.size,data:ev.target.result});renderPendingFiles()};r.readAsDataURL(file);
+    }
+  });
+}
+function rmFile(i){pFiles.splice(i,1);renderPendingFiles()}
+function renderPendingFiles(){
+  const el=document.getElementById('fList');if(!el)return;
+  if(!pFiles.length){el.innerHTML='';return}
+  el.innerHTML=pFiles.map((f,i)=>{const fi=fileInfo(f);return`<div class="fi fade-in"><div class="fi-ico ${fi.cls}">${fi.icon}</div><div class="fi-info"><div class="fi-name">${esc(f.name)}</div><div class="fi-meta">${fi.label} · ${fmtSize(f.size)}</div></div><button class="fi-rm" onclick="rmFile(${i})" type="button">✕</button></div>`}).join('');
+}
+function setupDragDropZone(){
+  const z=document.getElementById('upZone');if(!z)return;
+  z.addEventListener('dragover',e=>{e.preventDefault();z.classList.add('dov')});
+  z.addEventListener('dragleave',()=>z.classList.remove('dov'));
+  z.addEventListener('drop',e=>{e.preventDefault();z.classList.remove('dov');readFiles(Array.from(e.dataTransfer.files))});
+}
+let cameraStream=null;
+async function openCamera(){
+  const ve=document.getElementById('cameraVideo');const ca=document.getElementById('cameraCanvas');
+  try{
+    cameraStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}});
+    ve.srcObject=cameraStream;ve.style.display='block';await ve.play();
+    if(confirm('الكاميرا جاهزة. اضغط موافق لالتقاط الصورة.')){
+      ca.width=ve.videoWidth||640;ca.height=ve.videoHeight||480;
+      ca.getContext('2d').drawImage(ve,0,0);
+      const data=ca.toDataURL('image/jpeg',.72);
+      pFiles.push({name:`camera_${Date.now()}.jpg`,type:'image/jpeg',size:Math.round(data.length*.75),data});
+      renderPendingFiles();toast('📷 تم الالتقاط','success');
+    }
+  }catch(e){toast('❌ تعذر الوصول للكاميرا','error')}
+  finally{if(cameraStream){cameraStream.getTracks().forEach(t=>t.stop());cameraStream=null}ve.style.display='none'}
+}
+
+/* =====================================================================
+   FILE VIEWER
+   ===================================================================== */
+async function openViewer(id){
+  const files=await loadFilesForRecord(id);
+  if(!files.length)return toast('لا توجد ملفات','warning');
+  const r=await queryOne('SELECT name FROM records WHERE id=?',[id]);
+  cleanBlobs();S.vFiles=files;S.vIdx=0;
+  const vt=document.getElementById('vTitle');const vs=document.getElementById('vSub');
+  if(vt)vt.textContent=r?.name||'';if(vs)vs.textContent=`${files.length} ملف`;
+  renderVTabs();renderVContent();openModal('viewOv');
+}
+function cleanBlobs(){S.vBlobs.forEach(u=>URL.revokeObjectURL(u));S.vBlobs=[]}
+function closeViewer(){closeModal('viewOv');cleanBlobs()}
+function renderVTabs(){
+  const el=document.getElementById('vTabs');if(!el)return;
+  el.innerHTML=S.vFiles.map((f,i)=>{const fi=fileInfo(f);return`<button class="vtab ${i===S.vIdx?'act':''}" onclick="switchV(${i})">${fi.icon} ${esc(f.name)}</button>`}).join('');
+}
+function switchV(i){S.vIdx=i;renderVTabs();renderVContent()}
+async function renderVContent(){
+  const f=S.vFiles[S.vIdx];const c=document.getElementById('vContent');const info=document.getElementById('vInfo');
+  if(!f||!c)return;c.innerHTML='<div style="color:var(--t2);font-size:13px">جاري التحميل...</div>';
+  const fi=fileInfo(f);if(info)info.textContent=`${fi.label} · ${fmtSize(f.size)}`;
+  if(fi.view==='img'){c.innerHTML=`<img src="${f.data}" alt="${esc(f.name)}" style="max-width:100%;max-height:480px;border-radius:var(--r2);box-shadow:0 6px 28px rgba(0,0,0,.5)">`}
+  else if(fi.view==='pdf'){try{const b64=f.data.split(',')[1]||f.data;const bin=atob(b64);const buf=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)buf[i]=bin.charCodeAt(i);const blob=new Blob([buf],{type:'application/pdf'});const url=URL.createObjectURL(blob);S.vBlobs.push(url);c.innerHTML=`<iframe src="${url}#toolbar=1" style="width:100%;height:480px;border:none;border-radius:var(--r2)"></iframe>`}catch{c.innerHTML=`<div class="vnone"><span class="vi">📄</span><p>تعذر عرض PDF</p><button class="btn btn-teal" onclick="dlCurrent()">⬇️ تحميل</button></div>`}}
+  else if(fi.view==='excel'){try{const b64=f.data.split(',')[1]||f.data;const wb=XLSX.read(b64,{type:'base64'});const html=XLSX.utils.sheet_to_html(wb.Sheets[wb.SheetNames[0]]);c.innerHTML=`<div style="overflow:auto;max-height:480px;width:100%;background:#fff;border-radius:var(--r2);padding:10px">${html}</div>`}catch{c.innerHTML=`<div class="vnone"><span class="vi">📊</span><p>تعذر عرض Excel</p><button class="btn btn-teal" onclick="dlCurrent()">⬇️ تحميل</button></div>`}}
+  else if(fi.view==='word'){try{const b64=f.data.split(',')[1]||f.data;const ab=Uint8Array.from(atob(b64),c=>c.charCodeAt(0)).buffer;const res=await mammoth.convertToHtml({arrayBuffer:ab});c.innerHTML=`<div style="overflow:auto;max-height:480px;width:100%;background:white;color:#111;border-radius:var(--r2);padding:16px;font-family:Arial,sans-serif;font-size:13px;line-height:1.7">${res.value}</div>`}catch{c.innerHTML=`<div class="vnone"><span class="vi">📝</span><p>تعذر عرض Word</p><button class="btn btn-teal" onclick="dlCurrent()">⬇️ تحميل</button></div>`}}
+  else{c.innerHTML=`<div class="vnone"><span class="vi">${fi.icon}</span><p>ملفات ${fi.label} لا تُعرض في المتصفح</p><button class="btn btn-teal" onclick="dlCurrent()">⬇️ تحميل</button></div>`}
+}
+function dlCurrent(){const f=S.vFiles[S.vIdx];if(!f)return;const a=document.createElement('a');a.href=f.data;a.download=f.name;document.body.appendChild(a);a.click();document.body.removeChild(a)}
+async function downloadAllFiles(){
+  if(!S.vFiles.length)return;
+  try{const zip=new JSZip();S.vFiles.forEach(f=>{const b64=f.data.split(',')[1]||f.data;zip.file(f.name,b64,{base64:true})});
+  const content=await zip.generateAsync({type:'blob'});const url=URL.createObjectURL(content);
+  const a=document.createElement('a');a.href=url;a.download='files.zip';document.body.appendChild(a);a.click();
+  setTimeout(()=>{document.body.removeChild(a);URL.revokeObjectURL(url)},1500);toast('📦 تم تحميل ZIP','success')}catch(e){toast('❌ '+e.message,'error')}
+}
+
+/* =====================================================================
+   DETAIL VIEW
+   ===================================================================== */
+async function openDet(id){
+  const r=await queryOne('SELECT * FROM records WHERE id=?',[id]);if(!r)return;
+  const files=await loadFilesForRecord(id);
+  const tA={doctor:'🩺 طبيب',center:'🏢 مركز',hospital:'🏥 مستشفى',other:'📋 أخرى'};
+  const sA={active:'✅ نشط',inactive:'⛔ غير نشط',pending:'⏳ انتظار'};
+  const dn=document.getElementById('detName');const dc=document.getElementById('detCode');
+  const eb=document.getElementById('detEditBtn');const db=document.getElementById('detBody');
+  if(dn)dn.textContent=r.name;if(dc)dc.textContent=r.code||'';
+  if(eb){eb.style.display=hasAccess('edit')?'':'none';eb.onclick=()=>{closeModal('detOv');openEdit(id)}}
+  const tags=safeParseJSON(r.tags,[]);
+  const expired=r.expiry_date&&new Date(r.expiry_date)<new Date();
+  if(db)db.innerHTML=`
+    <div class="dr"><div class="dlbl">الكود</div><div class="dval">${esc(r.code||'—')}</div></div>
+    <div class="dr"><div class="dlbl">النوع</div><div class="dval">${tA[r.type]||r.type}</div></div>
+    <div class="dr"><div class="dlbl">اسم القائمة</div><div class="dval">${esc(r.price_list_name||'—')}</div></div>
+    <div class="dr"><div class="dlbl">تاريخ التفعيل</div><div class="dval">${fmtDate(r.activation_date)}</div></div>
+    <div class="dr"><div class="dlbl">انتهاء العقد</div><div class="dval">${fmtDate(r.expiry_date)}${expired?' <span style="color:var(--red)">⚠️ منتهي</span>':''}</div></div>
+    <div class="dr"><div class="dlbl">الهاتف</div><div class="dval">${r.phone?`<a href="tel:${esc(r.phone)}" style="color:var(--teal)">${esc(r.phone)}</a>`:'—'}</div></div>
+    <div class="dr"><div class="dlbl">البريد</div><div class="dval">${r.email?`<a href="mailto:${esc(r.email)}" style="color:var(--teal)">${esc(r.email)}</a>`:'—'}</div></div>
+    <div class="dr"><div class="dlbl">العنوان</div><div class="dval">${esc(r.address||'—')}</div></div>
+    <div class="dr"><div class="dlbl">الوسوم</div><div class="dval">${tags.map(t=>`<span style="background:var(--c3);padding:2px 7px;border-radius:99px;font-size:11px;margin-left:4px">${esc(t)}</span>`).join('')||'—'}</div></div>
+    <div class="dr"><div class="dlbl">الحالة</div><div class="dval">${sA[r.status]||r.status}</div></div>
+    <div class="dr"><div class="dlbl">⭐ مفضلة</div><div class="dval">${r.is_favorite?'نعم ⭐':'لا'}</div></div>
+    <div class="dr"><div class="dlbl">الملاحظات</div><div class="dval" style="white-space:pre-wrap">${esc(r.notes||'—')}</div></div>
+    <div class="dr"><div class="dlbl">الملفات (${files.length})</div><div class="dfiles">
+      ${files.length?files.map((f,i)=>{const fi=fileInfo(f);return`<div class="dfi" onclick="openViewerAt(${id},${i})"><span>${fi.icon}</span><span class="dfn">${esc(f.name)} · ${fmtSize(f.size)}</span><span class="dfo">فتح ›</span></div>`}).join(''):'<div style="color:var(--t3);font-size:12px">لا توجد ملفات</div>'}
+    </div></div>`;
+  openModal('detOv');
+}
+async function openViewerAt(id,idx){closeModal('detOv');await openViewer(id);setTimeout(()=>switchV(idx),320)}
+
+/* =====================================================================
+   MODALS / TOAST / CONTEXT MENU
+   ===================================================================== */
+function openModal(id){const el=document.getElementById(id);if(el){el.classList.add('open');document.body.style.overflow='hidden'}}
+function closeModal(id){const el=document.getElementById(id);if(el){el.classList.remove('open');document.body.style.overflow=''}}
+function ovClick(e,id){if(e.target.id===id)closeModal(id)}
+
+let ctxId=null;
+function setupCtx(){
+  const ci=id=>document.getElementById(id);
+  const ctxView=ci('ctxView');const ctxEdit=ci('ctxEdit');const ctxFiles=ci('ctxFiles');const ctxFav=ci('ctxFav');const ctxDel=ci('ctxDel');
+  if(ctxView)ctxView.onclick=()=>{openDet(ctxId);hideCtx()};
+  if(ctxEdit)ctxEdit.onclick=()=>{openEdit(ctxId);hideCtx()};
+  if(ctxFiles)ctxFiles.onclick=()=>{openViewer(ctxId);hideCtx()};
+  if(ctxFav)ctxFav.onclick=()=>{toggleFav(ctxId);hideCtx()};
+  if(ctxDel)ctxDel.onclick=()=>{openDel(ctxId);hideCtx()};
+  document.addEventListener('click',e=>{const m=document.getElementById('ctxMenu');if(m&&!m.contains(e.target))hideCtx()});
+}
+function showCtx(e,id){
+  e.preventDefault();e.stopPropagation();ctxId=id;
+  const menu=document.getElementById('ctxMenu');if(!menu)return;
+  const x=Math.min(e.clientX,window.innerWidth-180);const y=Math.min(e.clientY,window.innerHeight-200);
+  menu.style.top=y+'px';menu.style.left=x+'px';menu.classList.add('show');
+  const editEl=document.getElementById('ctxEdit');const delEl=document.getElementById('ctxDel');
+  if(editEl)editEl.style.display=hasAccess('edit')?'':'none';
+  if(delEl)delEl.style.display=hasAccess('delete')?'':'none';
+}
+function hideCtx(){const m=document.getElementById('ctxMenu');if(m)m.classList.remove('show')}
+
+/* =====================================================================
+   TAB SWITCHING / SIDEBAR
+   ===================================================================== */
+const ALL_TABS=['records','dashboard','trash','audit','users'];
+function switchTab(tab){
+  if(tab==='users'&&!hasAccess('manage_users'))return;
+  S.currentTab=tab;
+  ALL_TABS.forEach(t=>{
+    const n=document.getElementById('nav-'+t);if(n)n.classList.toggle('active',t===tab);
+    const p=document.getElementById('tab-'+t);if(p)p.style.display=t===tab?'':'none';
+  });
+  if(tab==='dashboard')updateCharts();
+  if(tab==='trash')renderTrash();
+  if(tab==='audit')renderAudit();
+  if(tab==='users')renderUsersTab();
+  closeSidebarMobile();
+}
+function toggleSidebar(){const sb=document.getElementById('sidebar');if(sb)sb.classList.toggle('collapsed')}
+function toggleSidebarMobile(){
+  const sb=document.getElementById('sidebar');const ov=document.getElementById('sbOverlay');if(!sb||!ov)return;
+  const open=sb.classList.contains('mobile-open');
+  sb.classList.toggle('mobile-open',!open);ov.classList.toggle('show',!open);
+}
+function closeSidebarMobile(){
+  const sb=document.getElementById('sidebar');const ov=document.getElementById('sbOverlay');
+  if(sb)sb.classList.remove('mobile-open');if(ov)ov.classList.remove('show');
+}
+
+/* =====================================================================
+   THEME / VOICE
+   ===================================================================== */
+function toggleTheme(){
+  S.theme=S.theme==='dark'?'light':'dark';
+  document.body.className=S.theme==='light'?'light':'';
+  localStorage.setItem('theme',S.theme);
+}
+let recognition=null;
+function toggleVoice(){
+  const btn=document.getElementById('voiceBtn');if(!btn)return;
+  if(!('webkitSpeechRecognition' in window)&&!('SpeechRecognition' in window)){toast('⚠️ المتصفح لا يدعم البحث الصوتي','warning');return}
+  const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+  if(!recognition){recognition=new SR();recognition.lang='ar-SA';recognition.continuous=false;recognition.interimResults=false;
+    recognition.onresult=e=>{const q=e.results[0][0].transcript;const el=document.getElementById('srchQ');if(el){el.value=q;refresh()}btn.classList.remove('listening');toast('🎤 '+q,'info')};
+    recognition.onerror=()=>btn.classList.remove('listening');recognition.onend=()=>btn.classList.remove('listening');}
+  btn.classList.contains('listening')?recognition.abort():recognition.start();
+  btn.classList.toggle('listening');
+}
+
+/* =====================================================================
+   EXPORT CSV / PDF / PRINT
+   ===================================================================== */
+async function doExportCSV(){
+  const recs=await query('SELECT * FROM records ORDER BY id');
+  const tA={doctor:'طبيب',center:'مركز',hospital:'مستشفى',other:'أخرى'};
+  const sA={active:'نشط',inactive:'غير نشط',pending:'انتظار'};
+  const rows=[['ID','الكود','الاسم','النوع','اسم القائمة','تاريخ التفعيل','انتهاء العقد','الهاتف','البريد','العنوان','الوسوم','الحالة','مفضلة','الملاحظات']];
+  for(const r of recs){
+    const tags=safeParseJSON(r.tags,[]).join('، ');
+    const fc=await queryOne('SELECT COUNT(*) as c FROM files WHERE record_id=?',[r.id]);
+    rows.push([r.id,r.code||'',r.name,tA[r.type]||r.type,r.price_list_name||'',r.activation_date||'',r.expiry_date||'',r.phone||'',r.email||'',r.address||'',tags,sA[r.status]||r.status,r.is_favorite?'نعم':'لا',(r.notes||'').replace(/"/g,'""')]);
+  }
+  const csv='\uFEFF'+rows.map(r=>r.map(c=>`"${c}"`).join(',')).join('\r\n');
+  const blob=new Blob([csv],{type:'text/csv;charset=utf-8'});
+  const url=URL.createObjectURL(blob);const a=document.createElement('a');
+  a.href=url;a.download=`قوائم-${today()}.csv`;document.body.appendChild(a);a.click();
+  setTimeout(()=>{document.body.removeChild(a);URL.revokeObjectURL(url)},1500);
+  toast('📊 تم تصدير CSV','success');
+}
+
+function doPrint(){
+  const el=document.getElementById('printFooter');
+  if(el)el.textContent=`نظام إدارة قوائم الأسعار · ${new Date().toLocaleDateString('ar-EG',{year:'numeric',month:'long',day:'numeric'})} · ${DB_NAME}`;
+  window.print();
+}
+
+async function exportPDF(){
+  try{
+    const element=document.getElementById('mainTbl')?.closest('.tscroll');
+    if(!element){toast('❌ لا يوجد جدول','error');return}
+    toast('⏳ جاري تحضير PDF...','info',4000);
+    const canvas=await html2canvas(element,{scale:2,useCORS:true});
+    const imgData=canvas.toDataURL('image/png');
+    const{jsPDF}=window.jspdf;
+    const pdf=new jsPDF({orientation:'landscape',unit:'mm',format:'a4'});
+    const imgWidth=285;const imgHeight=(canvas.height*imgWidth)/canvas.width;
+    pdf.addImage(imgData,'PNG',5,5,imgWidth,imgHeight);
+    pdf.save(`تقرير-${today()}.pdf`);toast('📄 تم تصدير PDF','success');
+  }catch(e){toast('❌ '+e.message,'error')}
+}
+
+/* =====================================================================
+   CHARTS
+   ===================================================================== */
+let chartTypeI=null,chartStatusI=null;
+async function updateCharts(){
+  const tc=document.getElementById('chartType')?.getContext('2d');
+  const sc=document.getElementById('chartStatus')?.getContext('2d');
+  if(!tc||!sc)return;
+  const types=await query("SELECT type,COUNT(*) as c FROM records GROUP BY type");
+  const statuses=await query("SELECT status,COUNT(*) as c FROM records GROUP BY status");
+  const tm={doctor:0,center:0,hospital:0,other:0};types.forEach(r=>tm[r.type]=r.c||0);
+  const sm={active:0,inactive:0,pending:0};statuses.forEach(r=>sm[r.status]=r.c||0);
+  const lc=getComputedStyle(document.body).getPropertyValue('--t1').trim();
+  if(chartTypeI){chartTypeI.destroy();chartTypeI=null}
+  if(chartStatusI){chartStatusI.destroy();chartStatusI=null}
+  chartTypeI=new Chart(tc,{type:'doughnut',data:{labels:['أطباء','مراكز','مستشفيات','أخرى'],datasets:[{data:[tm.doctor,tm.center,tm.hospital,tm.other],backgroundColor:['#3b82f6','#0fba7e','#c8a84b','#8b5cf6'],borderColor:'transparent',borderWidth:2}]},options:{responsive:true,plugins:{legend:{labels:{color:lc,font:{family:'Cairo'}}},title:{display:true,text:'توزيع الأنواع',color:lc,font:{family:'Tajawal',size:14}}}}});
+  chartStatusI=new Chart(sc,{type:'pie',data:{labels:['نشط','غير نشط','انتظار'],datasets:[{data:[sm.active,sm.inactive,sm.pending],backgroundColor:['#0fba7e','#f0485e','#f59e0b'],borderColor:'transparent',borderWidth:2}]},options:{responsive:true,plugins:{legend:{labels:{color:lc,font:{family:'Cairo'}}},title:{display:true,text:'توزيع الحالات',color:lc,font:{family:'Tajawal',size:14}}}}});
+}
+
+/* =====================================================================
+   DB BAR / SAVE STATUS
+   ===================================================================== */
+function setSaveStatus(st){
+  S.saveStatus=st;
+  const ind=document.getElementById('saveInd');const txt=document.getElementById('saveText');if(!ind||!txt)return;
+  ind.className='save-ind '+st;
+  txt.textContent={saved:'✓ SQLite محفوظ',saving:'جاري الحفظ...',nofile:'غير متصل'}[st]||st;
+}
+function updateDBBar(){
+  const fn=document.getElementById('dbFileName');const fm=document.getElementById('dbFileMeta');
+  if(fn)fn.textContent=DB_NAME||(OPFS_OK?'OPFS':'localStorage');
+  if(fm)fm.textContent=`SQLite · ${OPFS_OK?'OPFS':'localStorage'} · ${new Date().toLocaleTimeString('ar-EG')}`;
+  setSaveStatus(DB_NAME?'saved':'nofile');
+}
+
+/* =====================================================================
+   KEYBOARD SHORTCUTS
+   ===================================================================== */
+function setupKeyboard(){
+  document.addEventListener('keydown',e=>{
+    if(['INPUT','TEXTAREA','SELECT'].includes(e.target.tagName))return;
+    if(e.key==='Escape'){['aeOv','delOv','viewOv','detOv'].forEach(closeModal);hideCtx()}
+    if((e.key==='/'||e.key==='ذ')&&!e.ctrlKey){e.preventDefault();document.getElementById('srchQ')?.focus()}
+    if((e.key==='n'||e.key==='ن')&&!e.ctrlKey&&!e.metaKey)openAddModal();
+    if((e.ctrlKey||e.metaKey)&&e.key==='s'){e.preventDefault();manualVacuum&&manualVacuum()}
+    if((e.ctrlKey||e.metaKey)&&e.key==='p'){e.preventDefault();doPrint()}
+  });
+}
+
+/* =====================================================================
+   RESPONSIVE
+   ===================================================================== */
+function handleResize(){
+  const mb=document.getElementById('menuBtn');const sb=document.getElementById('sidebar');const ov=document.getElementById('sbOverlay');
+  if(!mb||!sb)return;
+  if(window.innerWidth<=768){mb.style.display='';sb.classList.remove('collapsed')}
+  else{mb.style.display='none';sb.classList.remove('mobile-open');if(ov)ov.classList.remove('show')}
+}
+
+/* =====================================================================
+   MAIN REFRESH
+   ===================================================================== */
+async function refresh(){
+  if(!DB||!DB_NAME)return;
+  await doFilter();
+  await updateStats();
+  renderTbl();
+  renderPgn();
+  refreshUIBasedOnRole();
+  if(S.currentTab==='trash')await renderTrash();
+  if(S.currentTab==='audit')await renderAudit();
+  if(S.currentTab==='users')await renderUsersTab();
+  if(S.currentTab==='dashboard')await updateCharts();
+}
+
+/* =====================================================================
+   BOOT
+   ===================================================================== */
+document.addEventListener('DOMContentLoaded',async()=>{
+  if(S.theme==='light')document.body.classList.add('light');
+  setLoad('جاري التهيئة...',10);
+
+  // Setup date field
+  const dateEl=document.getElementById('fDate');if(dateEl)dateEl.value=today();
+
+  // Init tabs — show only records
+  ALL_TABS.forEach(t=>{const p=document.getElementById('tab-'+t);if(p)p.style.display=t==='records'?'':'none'});
+
+  setupDragDropZone();setupCtx();setupKeyboard();
+  handleResize();window.addEventListener('resize',handleResize);
+
+  // Load SQLite engine
+  setLoad('تحميل محرك SQLite...',20);
+  const sqlOk=await initSQLite();
+  if(!sqlOk){
+    document.getElementById('loadingScreen').style.display='none';
+    toast('❌ فشل تحميل SQLite. يرجى تحديث المتصفح.','error',8000);
+    return;
+  }
+  setLoad('SQLite جاهز',80);
+
+  // Check if there's a previously used database in localStorage (for sql.js mode)
+  if(DB._sqljs){
+    const keys=Object.keys(localStorage).filter(k=>k.startsWith('sqlitedb_'));
+    if(keys.length){
+      setLoad('فتح آخر قاعدة بيانات...',90);
+      const name=keys[0].replace('sqlitedb_','');
+      await openExistingDatabase(name);
+    }else{
+      document.getElementById('loadingScreen').style.display='none';
+      await showInitScreen();
+      document.getElementById('initScreen').style.display='flex';
+    }
+    return;
+  }
+
+  setLoad('فحص OPFS...',90);
+  // OPFS mode: check for existing databases
+  const existing=await listOPFSDatabases();
+  document.getElementById('loadingScreen').style.display='none';
+
+  if(existing.length){
+    // Try to auto-open the last used database
+    const lastDb=localStorage.getItem('lastDb');
+    if(lastDb&&existing.includes(lastDb)){
+      await openExistingDatabase(lastDb);
+    }else{
+      await showInitScreen();
+      document.getElementById('initScreen').style.display='flex';
+    }
+  }else{
+    await showInitScreen();
+    document.getElementById('initScreen').style.display='flex';
+  }
+});
+
+// Save last used database name
+const _origOpenExistingDatabase=openExistingDatabase;
+async function openExistingDatabase(name){
+  localStorage.setItem('lastDb',name);
+  await _origOpenExistingDatabase(name);
+}
+</script>
+</body>
+</html>
